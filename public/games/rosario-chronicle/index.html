@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>검은 수녀단: 로사리오 크로니클</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05050a; }
+  body { font-family: 'Noto Serif KR', 'Apple SD Gothic Neo', serif; color: #e8e0cc; user-select: none; }
+  #game { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  /* ---------- 풀스크린 화면들 ---------- */
+  .screen {
+    position: absolute; inset: 0; z-index: 30;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(20,16,30,0.92), rgba(3,3,8,0.98));
+    text-align: center; padding: 24px;
+  }
+  h1 { font-size: 2.6rem; letter-spacing: 0.35rem; color: #d8b45a; text-shadow: 0 0 24px rgba(216,180,90,0.4); }
+  .subtitle { margin-top: 12px; color: #9a92a8; letter-spacing: 0.15rem; font-size: 0.95rem; }
+  .cross { font-size: 2rem; color: #d8b45a; margin-bottom: 18px; }
+  button {
+    margin-top: 34px; padding: 14px 46px; font-size: 1.1rem; font-family: inherit;
+    background: transparent; color: #d8b45a; border: 1px solid #d8b45a; cursor: pointer;
+    letter-spacing: 0.3rem; transition: all 0.25s;
+  }
+  button:hover { background: #d8b45a; color: #14101e; box-shadow: 0 0 30px rgba(216,180,90,0.5); }
+
+  #loading-screen { z-index: 40; }
+  #load-bar { width: 320px; height: 8px; border: 1px solid #5a5068; margin-top: 30px; }
+  #load-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #8a6a30, #d8b45a); transition: width 0.2s; }
+  #load-label { margin-top: 10px; font-size: 0.8rem; color: #8a8298; }
+
+  #title-screen { display: none; }
+  #select-screen { display: none; }
+  #select-screen h2 { color: #d8b45a; letter-spacing: 0.25rem; margin-bottom: 8px; }
+  #select-screen .hint { color: #8a8298; font-size: 0.85rem; margin-bottom: 26px; }
+  #char-cards { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; }
+  .card {
+    width: 256px; padding: 22px 18px; text-align: left; cursor: pointer;
+    background: rgba(18,14,28,0.9); border: 1px solid #3a3248; transition: all 0.2s;
+  }
+  .card:hover { border-color: #d8b45a; transform: translateY(-4px); box-shadow: 0 8px 30px rgba(216,180,90,0.25); }
+  .card h3 { color: #e8dcb8; font-size: 1.2rem; }
+  .card-role { color: #9a86c8; font-size: 0.8rem; margin: 4px 0; }
+  .card-angel { color: #d8b45a; font-size: 0.8rem; margin-bottom: 10px; }
+  .card p { font-size: 0.82rem; line-height: 1.5; color: #b0a8bc; min-height: 60px; }
+  .card-skills { margin-top: 10px; display: flex; gap: 10px; }
+  .card-skills span { font-size: 1.1rem; position: relative; }
+  .card-skills em { font-size: 0.55rem; color: #8a8298; font-style: normal; display: block; text-align: center; }
+  .card-stats { font-size: 0.75rem; color: #7a7288; margin-top: 10px; }
+
+  #end-screen { display: none; z-index: 35; }
+  #end-title { font-size: 2rem; color: #d8b45a; letter-spacing: 0.25rem; }
+  #end-sub { margin-top: 16px; max-width: 560px; line-height: 1.8; color: #b0a8bc; font-size: 0.95rem; white-space: pre-line; }
+  #end-btns { display: flex; gap: 18px; }
+  #end-btn2 { border-color: #6a6278; color: #a89ab4; }
+  #end-btn2:hover { background: #6a6278; color: #14101e; box-shadow: none; }
+
+  /* ---------- HUD ---------- */
+  #hud { display: none; position: absolute; inset: 0; z-index: 5; pointer-events: none; }
+
+  /* 파티 프레임 (좌상단) */
+  #party-frames { position: absolute; top: 14px; left: 14px; }
+  .pframe {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 7px;
+    background: rgba(10,8,16,0.7); border: 1px solid #3a3248; padding: 5px 9px 5px 5px;
+    border-radius: 3px; width: 216px;
+  }
+  .pframe.dead { opacity: 0.4; filter: grayscale(1); }
+  .pf-portrait {
+    width: 34px; height: 34px; border: 1px solid #5a5068; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center; font-size: 1.05rem;
+    background: radial-gradient(circle, #2a2438, #14101e); color: #d8b45a;
+  }
+  .pf-body { flex: 1; }
+  .pf-name { font-size: 0.72rem; color: #e8e0cc; }
+  .pf-lv { color: #d8b45a; font-size: 0.62rem; }
+  .pf-bar { height: 8px; background: rgba(0,0,0,0.6); border: 1px solid #3a3248; margin-top: 3px; }
+  .pf-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #2a7a40, #50c878); transition: width 0.15s; }
+  .pf-hp { font-size: 0.58rem; color: #8a8298; margin-top: 2px; }
+
+  /* 층 라벨 + 타겟/보스 프레임 (상단 중앙) */
+  #floor-label {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    color: #d8b45a; letter-spacing: 0.2rem; font-size: 0.95rem; text-shadow: 0 0 12px rgba(0,0,0,0.8);
+  }
+  #target-frame {
+    display: none; position: absolute; top: 38px; left: 50%; transform: translateX(-50%);
+    width: 250px; background: rgba(10,8,16,0.75); border: 1px solid #6a3038; padding: 5px 8px; border-radius: 3px;
+  }
+  #target-frame.elite { border-color: #d8842a; box-shadow: 0 0 14px rgba(216,132,42,0.3); }
+  .tf-name { font-size: 0.78rem; color: #f0d8c0; }
+  .tf-sub { font-size: 0.6rem; color: #b07040; }
+  .tf-bar { height: 9px; background: rgba(0,0,0,0.6); border: 1px solid #4a2830; margin-top: 3px; }
+  .tf-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #8a2030, #d05050); transition: width 0.12s; }
+
+  #boss-bar {
+    display: none; position: absolute; top: 96px; left: 50%; transform: translateX(-50%);
+    width: 460px; max-width: 72vw;
+  }
+  #boss-bar .bname { text-align: center; color: #e06060; font-size: 0.85rem; letter-spacing: 0.2rem; text-shadow: 0 2px 6px #000; }
+  #boss-track { height: 12px; background: rgba(0,0,0,0.75); border: 1px solid #5a2030; margin-top: 4px; }
+  #boss-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #5a1020, #b03050); transition: width 0.15s; }
+
+  /* 미니맵 + 시계 + 임무 (우상단) */
+  #map-box { position: absolute; top: 14px; right: 14px; text-align: right; }
+  #minimap { border: 1px solid #4a4258; border-radius: 3px; }
+  #clock { margin-top: 5px; font-size: 0.75rem; color: #c8c0d4; text-shadow: 0 1px 3px #000; }
+  #quest {
+    margin-top: 8px; width: 148px; text-align: left;
+    background: rgba(10,8,16,0.7); border: 1px solid #3a3248; border-radius: 3px; padding: 6px 8px;
+  }
+  #quest .q-title { font-size: 0.66rem; color: #d8b45a; letter-spacing: 0.1rem; }
+  #quest-body { font-size: 0.62rem; color: #b0a8bc; margin-top: 4px; line-height: 1.5; }
+
+  /* 전투 로그 (좌하단) */
+  #combat-log {
+    position: absolute; bottom: 88px; left: 14px; width: 300px; max-height: 160px; overflow: hidden;
+    font-size: 0.68rem; line-height: 1.55; text-shadow: 0 1px 3px #000;
+  }
+  .log-line { color: #a89ab4; animation: logfade 8s forwards; }
+  .log-line.gold { color: #d8b45a; }
+  .log-line.red { color: #d06060; }
+  .log-line.green { color: #7ac890; }
+  .log-line.dim { color: #6a6278; }
+  @keyframes logfade { 0%,75% { opacity: 1; } 100% { opacity: 0.25; } }
+
+  /* 핫바 + 경험치 바 (하단 중앙) */
+  #hotbar-wrap { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); text-align: center; }
+  #exp-wrap { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+  #exp-label { font-size: 0.7rem; color: #d8b45a; white-space: nowrap; }
+  #exp-bar { width: 260px; height: 6px; background: rgba(0,0,0,0.65); border: 1px solid #3a3248; }
+  #exp-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #8a6a30, #d8b45a); transition: width 0.2s; }
+  #hotbar { display: flex; gap: 8px; pointer-events: auto; }
+  .slot {
+    position: relative; width: 56px; height: 56px; border: 1px solid #5a5068; border-radius: 4px;
+    background: rgba(12,10,20,0.85); overflow: visible;
+  }
+  .slot.ready { border-color: #8a7a48; box-shadow: 0 0 10px rgba(216,180,90,0.18); }
+  .slot-icon { font-size: 1.45rem; line-height: 50px; text-align: center; }
+  .slot-cd {
+    position: absolute; bottom: 0; left: 0; width: 100%; height: 0%;
+    background: rgba(0,0,0,0.78); border-radius: 0 0 4px 4px;
+  }
+  .slot-lock {
+    display: none; position: absolute; inset: 0; background: rgba(5,5,10,0.82);
+    font-size: 1rem; text-align: center; padding-top: 8px; border-radius: 4px;
+  }
+  .slot-lock span { display: block; font-size: 0.58rem; color: #8a8298; }
+  .slot.locked .slot-lock { display: block; }
+  .slot-key {
+    position: absolute; top: 2px; left: 4px; font-size: 0.6rem; color: #d8b45a; text-shadow: 0 1px 2px #000;
+  }
+  .slot-tip {
+    display: none; position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%);
+    width: 190px; background: rgba(8,6,14,0.95); border: 1px solid #5a5068; border-radius: 4px;
+    padding: 8px; font-size: 0.66rem; line-height: 1.5; color: #b0a8bc; z-index: 10;
+  }
+  .slot-tip b { color: #e8dcb8; }
+  .slot-tip span { color: #7a7288; font-size: 0.6rem; }
+  .slot:hover .slot-tip { display: block; }
+
+  /* 조작 힌트 (우하단) */
+  #controls-hint {
+    position: absolute; bottom: 14px; right: 14px; text-align: right;
+    font-size: 0.66rem; color: #6a6278; line-height: 1.7; text-shadow: 0 1px 2px #000;
+  }
+
+  /* 네임플레이트 / 데미지 숫자 레이어 */
+  #plate-layer, #dmg-layer { position: absolute; inset: 0; overflow: hidden; }
+  .nameplate { position: absolute; left: 0; top: 0; text-align: center; will-change: transform; }
+  .np-name { font-size: 0.62rem; color: #e0d8c8; text-shadow: 0 1px 3px #000; white-space: nowrap; }
+  .nameplate.enemy .np-name { color: #e89090; }
+  .nameplate.enemy.elite .np-name { color: #f0a850; font-size: 0.7rem; }
+  .nameplate.ally .np-name { color: #a8e0b8; }
+  .nameplate.ally.player .np-name { color: #ffd970; }
+  .np-bar { width: 52px; height: 4px; background: rgba(0,0,0,0.7); border: 1px solid rgba(0,0,0,0.8); margin: 2px auto 0; }
+  .nameplate.elite .np-bar { width: 68px; height: 5px; }
+  .np-fill { height: 100%; background: #d04040; }
+  .nameplate.ally .np-fill { background: #50c878; }
+  .nameplate.mad .np-name::after { content: ' ⚔'; font-size: 0.55rem; }
+
+  .dmg-num {
+    position: absolute; font-size: 1.0rem; font-weight: bold; color: #ffd970;
+    text-shadow: 0 2px 4px #000, 0 0 8px rgba(0,0,0,0.5);
+    animation: dmgfloat 0.95s ease-out forwards; pointer-events: none;
+  }
+  .dmg-num.dealt { color: #ffe8a0; }
+  .dmg-num.dealt.npc { color: #c8c8d8; font-size: 0.8rem; }
+  .dmg-num.taken { color: #ff6050; font-size: 1.1rem; }
+  .dmg-num.aggro { color: #ff3030; font-size: 1.5rem; }
+  .dmg-num.charm { color: #ff77aa; font-size: 1.4rem; }
+  .dmg-num.petrify { color: #ffd24a; font-size: 1.4rem; }
+  @keyframes dmgfloat {
+    0% { transform: translateY(0) scale(0.8); opacity: 0; }
+    12% { transform: translateY(-8px) scale(1.15); opacity: 1; }
+    100% { transform: translateY(-52px) scale(0.95); opacity: 0; }
+  }
+
+  /* 중앙 배너 + 골드 플래시 */
+  #banner {
+    position: absolute; top: 26%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; opacity: 0; transition: opacity 0.4s; pointer-events: none; z-index: 8;
+  }
+  #banner.show { opacity: 1; }
+  #banner .b-title { font-size: 1.7rem; color: #d8b45a; letter-spacing: 0.3rem; text-shadow: 0 0 20px rgba(216,180,90,0.6), 0 2px 6px #000; }
+  #banner .b-sub { margin-top: 8px; font-size: 0.9rem; color: #c8c0d4; text-shadow: 0 2px 5px #000; }
+  #blessing-box {
+    margin-top: 6px; text-align: left; font-size: 0.68rem; color: #d8b45a;
+    background: rgba(10,8,16,0.7); border: 1px solid #3a3248; border-radius: 3px; padding: 5px 8px;
+  }
+  .bb-hint { color: #7a7288; font-size: 0.6rem; }
+
+  #upgrade-panel {
+    display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 440px; max-width: 92vw; z-index: 25; pointer-events: auto;
+    background: rgba(12,9,20,0.96); border: 1px solid #d8b45a; border-radius: 6px;
+    padding: 20px 22px; box-shadow: 0 0 40px rgba(216,180,90,0.25);
+  }
+  .up-title { text-align: center; color: #d8b45a; font-size: 1.15rem; letter-spacing: 0.25rem; }
+  .up-sub { text-align: center; color: #8a8298; font-size: 0.7rem; margin: 6px 0 14px; }
+  .up-row {
+    display: flex; align-items: center; gap: 10px; padding: 8px 6px;
+    border-bottom: 1px solid #2a2438;
+  }
+  .up-icon { font-size: 1.15rem; width: 26px; text-align: center; }
+  .up-name { width: 128px; font-size: 0.78rem; color: #e8dcb8; }
+  .up-name em { color: #d8b45a; font-style: normal; font-size: 0.68rem; }
+  .up-desc { flex: 1; font-size: 0.66rem; color: #9a92a8; }
+  .up-buy {
+    margin: 0; padding: 5px 12px; font-size: 0.7rem; letter-spacing: 0.05rem;
+    background: transparent; color: #d8b45a; border: 1px solid #8a7a48; cursor: pointer;
+  }
+  .up-buy:hover:not(:disabled) { background: #d8b45a; color: #14101e; }
+  .up-buy:disabled { opacity: 0.35; cursor: default; }
+  .up-hint { text-align: center; color: #6a6278; font-size: 0.62rem; margin-top: 12px; }
+
+  #coop-row { margin-top: 22px; display: flex; gap: 10px; align-items: center; }
+  #coop-room {
+    width: 130px; padding: 9px 12px; font-family: inherit; font-size: 0.85rem; letter-spacing: 0.15rem;
+    background: rgba(12,10,20,0.85); color: #e8dcb8; border: 1px solid #5a5068; text-align: center;
+  }
+  #coop-room:focus { outline: none; border-color: #d8b45a; }
+  .coop-btn { margin: 0; padding: 9px 18px; font-size: 0.8rem; letter-spacing: 0.15rem; border-color: #8a7a48; }
+  #coop-status { margin-top: 10px; font-size: 0.75rem; color: #7ac890; min-height: 1em; }
+
+  #acct-name {
+    width: 150px; padding: 9px 12px; font-family: inherit; font-size: 0.8rem;
+    background: rgba(12,10,20,0.85); color: #a8e0b8; border: 1px solid #3e5a48; text-align: center;
+  }
+  #acct-name:focus { outline: none; border-color: #7ac890; }
+
+  #lobby-panel {
+    display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 480px; max-width: 94vw; z-index: 32; pointer-events: auto;
+    background: rgba(12,9,20,0.97); border: 1px solid #d8b45a; border-radius: 6px;
+    padding: 22px 24px; box-shadow: 0 0 40px rgba(216,180,90,0.25); text-align: center;
+  }
+  .lobby-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
+  .lobby-who { width: 70px; font-size: 0.75rem; color: #d8b45a; text-align: right; }
+  .lobby-picks { display: flex; gap: 8px; flex: 1; }
+  .lobby-pick {
+    flex: 1; margin: 0; padding: 9px 4px; font-size: 0.74rem; letter-spacing: 0.05rem;
+    background: rgba(18,14,28,0.9); color: #b0a8bc; border: 1px solid #3a3248; cursor: pointer;
+  }
+  .lobby-pick:hover:not(:disabled) { border-color: #d8b45a; color: #e8dcb8; }
+  .lobby-pick.picked { border-color: #d8b45a; color: #14101e; background: #d8b45a; }
+  .lobby-pick.taken { opacity: 0.35; cursor: default; }
+  .lobby-pick:disabled { cursor: default; }
+  #lobby-actions { margin-top: 20px; }
+  #lobby-wait { font-size: 0.75rem; color: #8a8298; }
+  #lobby-start:disabled { opacity: 0.4; cursor: default; }
+
+  #reset-save {
+    margin-top: 14px; padding: 6px 16px; font-size: 0.68rem; letter-spacing: 0.1rem;
+    border-color: #4a4258; color: #7a7288;
+  }
+  #reset-save:hover { background: #4a4258; color: #d8d0e0; box-shadow: none; }
+
+  #flash { position: absolute; inset: 0; background: radial-gradient(ellipse, rgba(255,222,140,0.55), transparent 70%); opacity: 0; pointer-events: none; z-index: 7; }
+  #flash.go { animation: goldflash 0.7s ease-out; }
+  @keyframes goldflash { 0% { opacity: 1; } 100% { opacity: 0; } }
+</style>
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+</script>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="loading-screen" class="screen">
+    <div class="cross">✠</div>
+    <h1>검은 수녀단</h1>
+    <div class="subtitle">로사리오 크로니클</div>
+    <div id="load-bar"><div id="load-fill"></div></div>
+    <div id="load-label">성물을 준비하는 중…</div>
+  </div>
+
+  <div id="title-screen" class="screen">
+    <div class="cross">✠</div>
+    <h1>검은 수녀단</h1>
+    <div class="subtitle">로사리오 크로니클 — 제1성 · 벨제붑의 탑</div>
+    <div class="subtitle" style="margin-top:20px; max-width:520px; line-height:1.8;">
+      하룻밤 사이 솟아오른 검은 탑. 잠들어 깨어나지 않는 마을 사람들.<br/>
+      로사리오 수녀단의 검은 수녀들이 성수와 십자가를 들고 탑의 문을 연다.
+    </div>
+    <button id="start-btn">기도를 시작한다</button>
+    <!-- 싱글플레이 버전: 온라인 코옵(릴레이 서버 필요) UI는 숨김 -->
+    <div id="coop-row" style="display:none">
+      <input id="acct-name" maxlength="24" placeholder="세례명 (계정, 선택)" />
+      <input id="coop-room" maxlength="12" placeholder="방 코드" value="ROSARIO" />
+      <button id="coop-host" class="coop-btn">방 만들기</button>
+      <button id="coop-join" class="coop-btn">참가하기</button>
+    </div>
+    <div id="coop-status" style="display:none"></div>
+    <button id="reset-save">순례 기록 초기화 (강화·회차 삭제)</button>
+  </div>
+
+  <div id="select-screen" class="screen">
+    <h2>순례자를 선택하라</h2>
+    <div class="hint">나머지 두 사람은 동행자(NPC)가 되어 함께 오른다</div>
+    <div id="char-cards"></div>
+  </div>
+
+  <div id="hud">
+    <div id="plate-layer"></div>
+    <div id="dmg-layer"></div>
+
+    <div id="party-frames"></div>
+    <div id="floor-label"></div>
+    <div id="target-frame">
+      <div class="tf-name"></div>
+      <div class="tf-bar"><div class="tf-fill"></div></div>
+      <div class="tf-sub"></div>
+    </div>
+    <div id="boss-bar">
+      <div class="bname"></div>
+      <div id="boss-track"><div id="boss-fill"></div></div>
+    </div>
+
+    <div id="map-box">
+      <canvas id="minimap" width="148" height="148"></canvas>
+      <div id="clock">☀ 낮</div>
+      <div id="quest">
+        <div class="q-title">✠ 임무</div>
+        <div id="quest-body"></div>
+      </div>
+      <div id="blessing-box">✚ 축복 성수 <span id="blessing-label">0</span> <span class="bb-hint">· C 강화</span></div>
+    </div>
+
+    <div id="combat-log"></div>
+
+    <div id="hotbar-wrap">
+      <div id="exp-wrap">
+        <span id="exp-label">Lv.1</span>
+        <div id="exp-bar"><div id="exp-fill"></div></div>
+      </div>
+      <div id="hotbar"></div>
+    </div>
+
+    <div id="controls-hint">
+      WASD 이동 · 1~4 스킬 (SPACE=성수) · 좌클릭 타겟 · C 축복 강화<br/>
+      우클릭 드래그 카메라 회전 · 휠 줌 · P 2인 플레이 (방향키 + , . / 우Shift)
+    </div>
+  </div>
+
+  <div id="lobby-panel">
+    <div class="up-title">✠ 순례 준비실</div>
+    <div class="up-sub">방 [<span id="lobby-room"></span>] · 동료: <span id="lobby-peer">대기 중…</span></div>
+    <div class="lobby-row"><span class="lobby-who">호스트</span><div id="lobby-host-picks" class="lobby-picks"></div></div>
+    <div class="lobby-row"><span class="lobby-who">동료 ★2</span><div id="lobby-guest-picks" class="lobby-picks"></div></div>
+    <div id="lobby-actions">
+      <button id="lobby-start" class="coop-btn" disabled>순례 시작 ✠</button>
+      <span id="lobby-wait" style="display:none">호스트가 시작하기를 기다립니다…</span>
+    </div>
+  </div>
+
+  <div id="upgrade-panel">
+    <div class="up-title">✚ 축복의 제단</div>
+    <div class="up-sub">보유 축복 성수: <span id="up-blessings">0</span> — 십부장·보스가 떨굽니다 (영구 저장)</div>
+    <div id="up-rows"></div>
+    <div class="up-hint">C 키로 닫기</div>
+  </div>
+
+  <div id="banner"><div class="b-title"></div><div class="b-sub"></div></div>
+  <div id="flash"></div>
+
+  <div id="end-screen" class="screen">
+    <div id="end-title"></div>
+    <div id="end-sub"></div>
+    <div id="end-btns">
+      <button id="end-btn"></button>
+      <button id="end-btn2" style="display:none"></button>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

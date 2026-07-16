@@ -1,0 +1,11 @@
+{
+  "title": "설문대할망의 섬",
+  "tagline": "제주 신화 속으로. 설문대할망의 섬을 걷는 3D 인터랙티브.",
+  "emoji": "🌋",
+  "aspect": {
+    "w": 900,
+    "h": 560
+  },
+  "order": 7,
+  "thumbnail": "thumb.jpg"
+}

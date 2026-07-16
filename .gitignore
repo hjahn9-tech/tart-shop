@@ -1,0 +1,14 @@
+/node_modules
+/.next
+/out
+/build
+.DS_Store
+*.pem
+.env*.local
+.vercel
+next-env.d.ts
+*.tsbuildinfo
+
+# 참고용 스킬 패키지 (앱 코드 아님)
+Skills-main.zip
+im-not-ai-main.zip

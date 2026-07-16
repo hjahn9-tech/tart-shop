@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>설문대할망의 섬 — 제주 신화 탐험</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Jua&family=Gowun+Dodum&display=swap" rel="stylesheet" />
+  <script type="module" crossorigin src="./assets/index-Bh9uLW4S.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-lSciL9ys.css">
+</head>
+<body>
+  <div id="app"></div>
+
+  <header id="hud">
+    <h1>🌋 설문대할망의 섬</h1>
+    <p id="hint">섬을 빙글빙글 돌려 보고, 반짝이는 별을 눌러 보세요!</p>
+    <div id="progress">찾은 이야기 <b id="found">0</b> / <b id="total">8</b></div>
+  </header>
+
+  <div id="intro">
+    <div class="intro-card">
+      <div class="intro-emoji">👵🏔️🌊</div>
+      <h1>설문대할망의 섬</h1>
+      <p>
+        아주 먼 옛날, 커다란 할머니가 치마폭에 흙을 담아<br />
+        바다 한가운데에 섬을 만들었어요.<br />
+        제주도 곳곳에 숨은 신화를 찾아 떠나 볼까요?
+      </p>
+      <button id="start">탐험 시작!</button>
+    </div>
+  </div>
+
+  <div id="modal" hidden>
+    <div id="modal-backdrop"></div>
+    <article id="modal-card">
+      <button id="modal-close" aria-label="닫기">✕</button>
+      <div id="modal-emoji"></div>
+      <p id="modal-place"></p>
+      <h2 id="modal-title"></h2>
+      <div id="modal-video"></div>
+      <p id="modal-story"></p>
+    </article>
+  </div>
+
+</body>
+</html>

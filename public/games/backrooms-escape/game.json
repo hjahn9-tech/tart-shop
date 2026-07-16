@@ -1,0 +1,11 @@
+{
+  "title": "Backrooms: Noclip",
+  "tagline": "노클립으로 빠진 백룸에서 출구를 찾으세요.",
+  "emoji": "🔦",
+  "aspect": {
+    "w": 900,
+    "h": 560
+  },
+  "order": 3,
+  "thumbnail": "thumb.jpg"
+}

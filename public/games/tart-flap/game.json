@@ -1,0 +1,11 @@
+{
+  "title": "Tart Flap",
+  "tagline": "탭 한 번으로 타르트를 오븐 사이로 날려보세요.",
+  "emoji": "🥧",
+  "aspect": {
+    "w": 360,
+    "h": 540
+  },
+  "order": 1,
+  "thumbnail": "thumb.jpg"
+}

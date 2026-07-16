@@ -1,0 +1,11 @@
+{
+  "_설명": "신화별 영상 주소. 유튜브는 https://www.youtube.com/embed/영상ID 형식, 자체 영상은 mp4 주소. 빈 문자열이면 플레이스홀더가 표시됩니다. 이 파일은 빌드 없이 교체 가능합니다.",
+  "seolmundae": "",
+  "sanbangsan": "",
+  "darangshi": "",
+  "samseong": "",
+  "yongduam": "",
+  "jacheongbi": "",
+  "yeongdeung": "",
+  "ieodo": ""
+}

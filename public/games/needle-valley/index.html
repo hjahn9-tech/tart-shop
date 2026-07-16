@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>가시 마을 (Needle Valley) — PSX 호러 방탈출</title>
+  <meta name="description" content="1998년 일산 신도시 외곽, 선인장 마을 '가시울'. 형이 죽은 온실에서 탈출하라. PSX 스타일 3D 호러 방탈출 게임." />
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+    body { font-family: 'Courier New', 'Nanum Gothic Coding', monospace; color: #cfd8c3; }
+    canvas#game { display: block; width: 100vw; height: 100vh; image-rendering: pixelated; }
+
+    .hud { position: fixed; pointer-events: none; z-index: 10; }
+    #crosshair {
+      left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px;
+      background: rgba(220,230,210,.8); border-radius: 50%;
+    }
+    #prompt {
+      left: 0; right: 0; bottom: 17%; text-align: center;
+      font-size: 15px; color: #d8e2c8; text-shadow: 0 0 6px #000, 0 1px 2px #000;
+    }
+    #msg {
+      left: 0; right: 0; bottom: 11%; text-align: center;
+      font-size: 15px; color: #b9c4a6; text-shadow: 0 0 6px #000;
+      opacity: 0; transition: opacity .4s;
+    }
+    #inv { left: 14px; bottom: 12px; display: flex; gap: 8px; }
+    #inv span {
+      background: rgba(10,14,9,.75); border: 1px solid #3a4436;
+      padding: 4px 10px; font-size: 13px; color: #aebd97;
+    }
+
+    #scanlines {
+      inset: 0; z-index: 9; opacity: .18;
+      background: repeating-linear-gradient(0deg, rgba(0,0,0,.5) 0 1px, transparent 1px 3px);
+    }
+    #vignette {
+      inset: 0; z-index: 8;
+      background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.55) 100%);
+    }
+    #danger {
+      inset: 0; z-index: 8; opacity: 0; transition: opacity .3s;
+      background: radial-gradient(ellipse at center, transparent 40%, rgba(140,10,10,.55) 100%);
+    }
+
+    /* valve puzzle */
+    .valveRow {
+      display: flex; align-items: center; gap: 14px; margin: 10px 0;
+      font-size: 14px;
+    }
+    .valveRow .valveName { width: 90px; }
+    .valveRow .valveVal { width: 70px; color: #9fe0a0; }
+    .valveRow button { margin: 0; padding: 6px 16px; }
+    #valveLever { width: 100%; margin-top: 18px; }
+    #choiceUI button { display: block; width: 100%; }
+
+    .overlay {
+      position: fixed; inset: 0; z-index: 20; display: flex;
+      align-items: center; justify-content: center; flex-direction: column;
+      background: rgba(2,4,2,.72);
+    }
+    .overlay.hidden { display: none; }
+    .panel {
+      background: #0b0e0a; border: 1px solid #3a4436; padding: 28px 34px;
+      max-width: 560px; width: min(560px, 92vw); box-shadow: 0 0 40px #000;
+    }
+    .panel h2 { font-size: 17px; color: #d8e2c8; margin-bottom: 14px; letter-spacing: 2px; }
+    .panel .body { font-size: 14px; line-height: 1.9; color: #aebd97; white-space: pre-wrap; }
+    .panel button, #titleOverlay button {
+      margin-top: 20px; background: #16201a; color: #cfd8c3; border: 1px solid #3a4436;
+      padding: 8px 22px; font-family: inherit; font-size: 14px; cursor: pointer;
+    }
+    .panel button:hover { background: #22302a; }
+
+    #titleOverlay { background: rgba(2,4,2,.55); cursor: pointer; }
+    #titleOverlay h1 {
+      font-size: 44px; letter-spacing: 14px; color: #d8e2c8;
+      text-shadow: 0 0 18px rgba(120,160,110,.35); margin-bottom: 10px;
+    }
+    #titleOverlay .sub { font-size: 15px; color: #8fa07e; letter-spacing: 6px; margin-bottom: 34px; }
+    #titleOverlay .controls { font-size: 13px; color: #6d7a5f; line-height: 2; text-align: center; }
+    #titleOverlay .start { margin-top: 30px; font-size: 15px; color: #cfd8c3; animation: blink 1.6s infinite; }
+    @keyframes blink { 50% { opacity: .25; } }
+
+    /* keypad */
+    #padDisplay {
+      background: #060905; border: 1px solid #3a4436; color: #9fe0a0;
+      font-size: 26px; letter-spacing: 12px; text-align: center;
+      padding: 10px 0 10px 12px; margin-bottom: 16px;
+    }
+    #padDisplay.shake { animation: shake .3s; color: #e08a7a; }
+    @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+    #padGrid { display: grid; grid-template-columns: repeat(3, 64px); gap: 8px; justify-content: center; }
+    #padGrid button { margin: 0; padding: 12px 0; font-size: 16px; }
+
+    /* graft puzzle */
+    #graftSeq {
+      background: #060905; border: 1px solid #3a4436; color: #9fe0a0;
+      font-size: 13px; text-align: center; padding: 10px 4px; margin: 14px 0;
+      white-space: nowrap; overflow: hidden;
+    }
+    #graftBtns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    #graftBtns button { margin: 0; }
+
+    /* fuse box */
+    .fuseSlot { display: block; width: 100%; text-align: left; }
+    .fuseSlot small { color: #6d7a5f; margin-left: 10px; }
+    .fuseSlot.burnt { color: #7a6a5a; }
+
+    #ending .panel { text-align: center; }
+  </style>
+  <script type="module" crossorigin src="./assets/index-BJlOUKJf.js"></script>
+</head>
+<body>
+  <div id="scanlines" class="hud"></div>
+  <div id="vignette" class="hud"></div>
+  <div id="danger" class="hud"></div>
+  <div id="crosshair" class="hud"></div>
+  <div id="prompt" class="hud"></div>
+  <div id="msg" class="hud"></div>
+  <div id="inv" class="hud"></div>
+
+  <div id="titleOverlay" class="overlay">
+    <h1>가시 마을</h1>
+    <div class="sub">1막 — 온실</div>
+    <div class="controls">
+      1998년. 일산 신도시 외곽, 선인장 마을 '가시울'.<br/>
+      형이 죽은 온실에서, 당신은 갇힌 채 깨어났다.<br/><br/>
+      WASD/방향키 이동 · 마우스 시점 · E/클릭 조사 · Shift 달리기
+    </div>
+    <div class="start" id="startLabel">— 클릭하여 시작 —</div>
+  </div>
+
+  <div id="note" class="overlay hidden">
+    <div class="panel">
+      <h2 id="noteTitle"></h2>
+      <div class="body" id="noteBody"></div>
+      <button id="noteClose">덮는다</button>
+    </div>
+  </div>
+
+  <div id="fuseUI" class="overlay hidden">
+    <div class="panel">
+      <h2>배전반</h2>
+      <div class="body">슬롯 하나의 퓨즈가 새까맣게 타 있다.
+새 퓨즈를 어느 회로에 끼울까.</div>
+      <button class="fuseSlot" data-amp="10">[ 10A ] <small>난방</small></button>
+      <button class="fuseSlot" data-amp="15">[ 15A ] <small>조명 — 퓨즈가 타 있다</small></button>
+      <button class="fuseSlot" data-amp="30">[ 30A ] <small>양액 펌프</small></button>
+      <button id="fuseClose">물러선다</button>
+    </div>
+  </div>
+
+  <div id="padUI" class="overlay hidden">
+    <div class="panel">
+      <h2>뒷문 키패드</h2>
+      <div id="padDisplay">----</div>
+      <div id="padGrid">
+        <button class="padBtn" data-k="1">1</button><button class="padBtn" data-k="2">2</button><button class="padBtn" data-k="3">3</button>
+        <button class="padBtn" data-k="4">4</button><button class="padBtn" data-k="5">5</button><button class="padBtn" data-k="6">6</button>
+        <button class="padBtn" data-k="7">7</button><button class="padBtn" data-k="8">8</button><button class="padBtn" data-k="9">9</button>
+        <button class="padBtn" data-k="C">C</button><button class="padBtn" data-k="0">0</button><button class="padBtn" data-k="OK">OK</button>
+      </div>
+      <button id="padClose">물러선다</button>
+    </div>
+  </div>
+
+  <div id="graftUI" class="overlay hidden">
+    <div class="panel">
+      <h2>접목대</h2>
+      <div class="body">형이 반쯤 준비해 둔 접목.
+도해의 순서대로 끝내야 한다.</div>
+      <div id="graftSeq">[ ? ]  [ ? ]  [ ? ]  [ ? ]</div>
+      <div id="graftBtns">
+        <button class="graftBtn" data-s="water">물을 준다</button>
+        <button class="graftBtn" data-s="stock">대목을 벤다</button>
+        <button class="graftBtn" data-s="band">밴드를 감는다</button>
+        <button class="graftBtn" data-s="scion">접수를 벤다</button>
+        <button class="graftBtn" data-s="place">접수를 올린다</button>
+        <button class="graftBtn" data-s="tie">실로 고정한다</button>
+      </div>
+      <button id="graftClose">물러선다</button>
+    </div>
+  </div>
+
+  <div id="actTrans" class="overlay hidden">
+    <div class="panel" style="text-align:center">
+      <h2 id="transTitle"></h2>
+      <div class="body" id="transBody"></div>
+      <button id="transBtn"></button>
+    </div>
+  </div>
+
+  <div id="valveUI" class="overlay hidden">
+    <div class="panel">
+      <h2>양액 배합 밸브</h2>
+      <div class="body">파이프가 '어머니'의 뿌리로 이어진다.
+밸브를 돌릴 때마다 배관이 울린다 — 조용히.</div>
+      <div class="valveRow"><span class="valveName" style="color:#c66">빨강 밸브</span><span class="valveVal" id="valR">0바퀴</span><button class="valveBtn" data-v="r">돌린다</button></div>
+      <div class="valveRow"><span class="valveName" style="color:#68c">파랑 밸브</span><span class="valveVal" id="valB">0바퀴</span><button class="valveBtn" data-v="b">돌린다</button></div>
+      <div class="valveRow"><span class="valveName" style="color:#6b6">초록 밸브</span><span class="valveVal" id="valG">0바퀴</span><button class="valveBtn" data-v="g">돌린다</button></div>
+      <button id="valveLever">주입 레버를 내린다</button>
+      <button id="valveClose">물러선다</button>
+    </div>
+  </div>
+
+  <div id="choiceUI" class="overlay hidden">
+    <div class="panel">
+      <h2>선택</h2>
+      <div class="body">사다리 위, 이장이 손을 내밀고 있다.
+어둠 속, '어머니'는 굳은 채 침묵한다.</div>
+      <button id="choiceFire">등유를 엎지르고, 불을 붙인다</button>
+      <button id="choiceRun">이장을 밀치고, 새벽 들판으로 달린다</button>
+    </div>
+  </div>
+
+  <div id="ending" class="overlay hidden">
+    <div class="panel">
+      <h2 id="endTitle">— 끝 —</h2>
+      <div class="body" id="endBody"></div>
+      <button onclick="location.reload()">처음부터</button>
+    </div>
+  </div>
+
+</body>
+</html>

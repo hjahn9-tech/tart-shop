@@ -1,0 +1,11 @@
+{
+  "title": "Tart Stack",
+  "tagline": "움직이는 타르트를 제때 떨궈 탑을 높이 쌓으세요.",
+  "emoji": "🧁",
+  "aspect": {
+    "w": 360,
+    "h": 540
+  },
+  "order": 2,
+  "thumbnail": "thumb.jpg"
+}

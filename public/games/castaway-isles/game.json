@@ -1,0 +1,11 @@
+{
+  "title": "Castaway Isles",
+  "tagline": "도트 그래픽으로 즐기는 무인도 생존 탐험.",
+  "emoji": "🏝️",
+  "aspect": {
+    "w": 900,
+    "h": 600
+  },
+  "order": 4,
+  "thumbnail": "thumb.jpg"
+}

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>__TITLE__</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #2a1a12;
+        overflow: hidden;
+        touch-action: manipulation;
+        font-family: system-ui, sans-serif;
+      }
+      #wrap {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff8f0;
+        text-align: center;
+        padding: 24px;
+      }
+    </style>
+
+    <!--
+      실물 광고 연결: AdSense + H5 Games Ads 승인 후 아래 두 블록의 주석을 해제하고
+      ca-pub-XXXXXXXX 를 실제 게시자 ID로 교체하세요. 승인 전에는 테스트 모드로 동작합니다.
+    -->
+    <!--
+    <script async data-ad-frequency-hint="30s"
+      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXX"
+      crossorigin="anonymous"></script>
+    <script>
+      window.__ADSENSE_CLIENT = "ca-pub-XXXXXXXX";
+      window.adsbygoogle = window.adsbygoogle || [];
+      window.adBreak = window.adConfig = function (o) { window.adsbygoogle.push(o); };
+    </script>
+    -->
+  </head>
+  <body>
+    <!--
+      여기가 게임 본체입니다.
+      · 직접 만든 게임이 있다면: 이 index.html 을 여러분 게임의 index.html 로 바꾸고,
+        게임 파일 전부를 이 폴더에 넣으세요. (afg-integration.js, game.json 은 남겨두세요)
+      · 광고를 붙이려면: <script src="./afg-integration.js"></script> 를 로드한 뒤
+        게임 오버 시 window.AFG.interstitial(...), 이어하기 시 window.AFG.rewarded(...) 를 호출하세요.
+    -->
+    <div id="wrap">
+      <div>
+        <div style="font-size: 40px">__EMOJI__</div>
+        <h1 style="margin: 12px 0 4px">__TITLE__</h1>
+        <p style="opacity: 0.7; font-size: 14px">
+          이 폴더에 게임 파일을 넣으면 여기에서 실행됩니다.
+        </p>
+      </div>
+    </div>
+
+    <!-- 광고 래퍼 (전역 window.AFG 준비) -->
+    <script src="./afg-integration.js"></script>
+  </body>
+</html>

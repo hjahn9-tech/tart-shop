@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>설한(雪寒) — 소빙하기 조선, 생사역의 밤</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@300;500;700;900&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#05070d; }
+  body { font-family:'Noto Serif KR', serif; color:#e8e2d5; user-select:none; }
+  #game { position:fixed; inset:0; display:block; }
+
+  .overlay { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; z-index:50; }
+
+  /* ---- 타이틀 ---- */
+  #title { background:radial-gradient(ellipse at 50% 30%, rgba(20,30,55,.92), rgba(3,5,10,.98)); cursor:pointer; }
+  #title h1 { font-size:88px; font-weight:900; letter-spacing:26px; text-indent:26px; color:#dfe8f5;
+              text-shadow:0 0 30px rgba(120,160,255,.35), 0 4px 2px #000; }
+  #title h1 small { display:block; font-size:20px; letter-spacing:14px; font-weight:300; color:#8fa3c4; margin-top:6px; }
+  #title .story { max-width:640px; margin:38px 20px 0; font-size:15.5px; line-height:2.05; font-weight:300; color:#c9c3b4;
+                  text-shadow:0 2px 3px #000; }
+  #title .story b { color:#e8e2d5; font-weight:700; }
+  #title .start { margin-top:44px; font-size:19px; letter-spacing:8px; color:#f0d9a8; animation:pulse 1.8s infinite; }
+  #title .histnote { position:absolute; bottom:22px; left:0; right:0; font-size:11.5px; color:#5c6878; letter-spacing:.5px; }
+  #title .controls { margin-top:18px; font-size:13px; color:#7d879c; letter-spacing:2px; }
+  @keyframes pulse { 0%,100%{opacity:.45} 50%{opacity:1} }
+
+  /* ---- HUD ---- */
+  #hud { position:fixed; inset:0; pointer-events:none; z-index:20; display:none; }
+  .bar-wrap { position:absolute; left:34px; bottom:34px; width:270px; }
+  .bar-label { font-size:12px; letter-spacing:4px; color:#b9b2a2; margin-bottom:4px; text-shadow:0 1px 2px #000; }
+  .bar { height:13px; background:rgba(0,0,0,.55); border:1px solid rgba(200,190,170,.35); }
+  .bar .fill { height:100%; transition:width .15s; }
+  #hpFill { background:linear-gradient(90deg,#7a1420,#c23a37); width:100%; }
+  #stWrap { margin-top:9px; }
+  #stWrap .bar { height:7px; }
+  #stFill { background:linear-gradient(90deg,#4d5f47,#8ba26f); width:100%; }
+
+  #ammoBox { position:absolute; right:38px; bottom:34px; text-align:right; text-shadow:0 2px 4px #000; }
+  #gunState { font-size:21px; font-weight:700; letter-spacing:3px; color:#f0d9a8; }
+  #gunState.empty { color:#c86050; }
+  #ammoCount { font-size:14px; color:#b9b2a2; margin-top:4px; letter-spacing:2px; }
+
+  #waveBox { position:absolute; top:26px; left:50%; transform:translateX(-50%); text-align:center; text-shadow:0 2px 4px #000; }
+  #waveText { font-size:15px; letter-spacing:6px; color:#c9c3b4; }
+  #killText { font-size:12px; letter-spacing:3px; color:#8a94a8; margin-top:4px; }
+
+  /* 조준점 */
+  #crosshair { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:22px; height:22px; opacity:.85; }
+  #crosshair::before, #crosshair::after { content:''; position:absolute; background:#e8e2d5; box-shadow:0 0 3px #000; }
+  #crosshair::before { left:50%; top:0; width:1.5px; height:100%; transform:translateX(-50%); }
+  #crosshair::after  { top:50%; left:0; height:1.5px; width:100%; transform:translateY(-50%); }
+
+  /* 장전 진행 */
+  #reloadWrap { position:absolute; top:58%; left:50%; transform:translateX(-50%); width:240px; display:none; text-align:center; }
+  #reloadText { font-size:14px; letter-spacing:3px; color:#f0d9a8; margin-bottom:7px; text-shadow:0 2px 3px #000; }
+  #reloadBar { height:5px; background:rgba(0,0,0,.6); border:1px solid rgba(240,217,168,.4); }
+  #reloadFill { height:100%; width:0%; background:#f0d9a8; }
+
+  /* 줍기 안내 / 획득 토스트 */
+  #pickupHint { position:absolute; bottom:23%; left:50%; transform:translateX(-50%);
+                font-size:15px; letter-spacing:2px; color:#f0d9a8; text-shadow:0 2px 4px #000;
+                background:rgba(0,0,0,.5); border:1px solid rgba(240,217,168,.35);
+                padding:7px 20px; display:none; white-space:nowrap; }
+
+  /* 중앙 메시지 */
+  #centerMsg { position:absolute; top:33%; left:50%; transform:translateX(-50%); max-width:660px; width:90%;
+               font-size:19px; line-height:1.9; font-weight:500; color:#efe7d3; text-align:center;
+               text-shadow:0 0 14px rgba(0,0,0,.9), 0 2px 3px #000; opacity:0; transition:opacity .8s; }
+  #banner { position:absolute; top:24%; left:0; right:0; text-align:center; font-size:34px; font-weight:900;
+            letter-spacing:14px; color:#d8404a; text-shadow:0 0 26px rgba(200,30,40,.5), 0 3px 4px #000;
+            opacity:0; transition:opacity .6s; }
+
+  /* 피격/저체력 */
+  #vignette { position:fixed; inset:0; pointer-events:none; z-index:15;
+              background:radial-gradient(ellipse at center, transparent 42%, rgba(120,0,0,.85) 100%); opacity:0; }
+  #hurtFlash { position:fixed; inset:0; pointer-events:none; z-index:16; background:rgba(160,10,10,.35); opacity:0; }
+  #coldVignette { position:fixed; inset:0; pointer-events:none; z-index:14;
+              background:radial-gradient(ellipse at center, transparent 55%, rgba(10,20,45,.55) 100%); opacity:.8; }
+
+  /* 사망 / 승리 / 일시정지 */
+  #deathScreen { background:rgba(8,2,2,.9); display:none; cursor:pointer; z-index:60; }
+  #deathScreen h2 { font-size:52px; font-weight:900; letter-spacing:18px; color:#a8323a; text-shadow:0 0 30px rgba(160,20,30,.6); }
+  #deathScreen p { margin-top:26px; font-size:16px; line-height:2; color:#b0a89a; max-width:520px; }
+  #deathScreen .retry { margin-top:38px; font-size:15px; letter-spacing:6px; color:#f0d9a8; animation:pulse 1.8s infinite; }
+
+  #winScreen { background:radial-gradient(ellipse at 50% 40%, rgba(90,60,30,.88), rgba(10,6,4,.96)); display:none; cursor:pointer; z-index:60; }
+  #winScreen h2 { font-size:44px; font-weight:900; letter-spacing:14px; color:#f5d9a0; text-shadow:0 0 34px rgba(255,190,90,.4); }
+  #winScreen p { margin-top:30px; font-size:16.5px; line-height:2.2; color:#ddd0b8; max-width:620px; white-space:pre-line; }
+  #winScreen .retry { margin-top:40px; font-size:14px; letter-spacing:6px; color:#c9b98f; animation:pulse 1.8s infinite; }
+
+  #pauseScreen { background:rgba(4,6,12,.72); display:none; cursor:pointer; z-index:55; backdrop-filter:blur(3px); }
+  #pauseScreen h3 { font-size:26px; letter-spacing:10px; color:#dfe8f5; }
+  #pauseScreen p { margin-top:16px; font-size:14px; letter-spacing:3px; color:#8a94a8; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<div id="coldVignette"></div>
+<div id="vignette"></div>
+<div id="hurtFlash"></div>
+
+<div id="hud">
+  <div class="bar-wrap">
+    <div class="bar-label">체력 · 體力</div>
+    <div class="bar"><div class="fill" id="hpFill"></div></div>
+    <div id="stWrap">
+      <div class="bar"><div class="fill" id="stFill"></div></div>
+    </div>
+  </div>
+  <div id="ammoBox">
+    <div id="gunState">조총 — 장전됨</div>
+    <div id="ammoCount">탄환 40 · [1] 조총 · 환도 [우클릭]</div>
+  </div>
+  <div id="waveBox">
+    <div id="waveText"></div>
+    <div id="killText"></div>
+  </div>
+  <div id="crosshair"></div>
+  <div id="pickupHint"></div>
+  <div id="reloadWrap">
+    <div id="reloadText"></div>
+    <div id="reloadBar"><div id="reloadFill"></div></div>
+  </div>
+  <div id="centerMsg"></div>
+  <div id="banner"></div>
+</div>
+
+<div id="title" class="overlay">
+  <h1>雪寒<small>설한 — 소빙하기 조선, 생사역의 밤</small></h1>
+  <div class="story">
+    경신년(庚申年), 조선. 소빙하기의 한기가 나라를 삼켰다.<br>
+    여름에도 서리가 내렸고, 굶어 죽은 자들이 <b>생사역(生死疫)</b>이 되어 일어났다.<br><br>
+    아버지는 나선정벌에서 조총을 쏘던 포수였다. 아버지가 남긴 것은<br>
+    청에서 들여온 <b>조총 한 자루</b>와, 어깨에 밴 사격술뿐.<br><br>
+    생사역 떼가 마을을 덮치던 밤 — 나, <b>서리(霜)</b>는 동생 <b>단이</b>의 손을 놓쳤다.<br>
+    눈보라 속, 폐허가 된 마을로 돌아간다. 동생을 찾을 때까지, 방아쇠를 당긴다.
+  </div>
+  <div class="start">— 클릭하여 장전 —</div>
+  <div class="controls">이동 W A S D · 달리기 SHIFT · 발사 좌클릭 · 환도 우클릭 · 줍기 E · 무기 1 2 3 · 도약 SPACE</div>
+  <div class="controls" style="margin-top:8px; color:#8a7d5e;">집 안을 뒤져라 — 삼안총(속사)과 비격진천뢰(폭탄)가 어딘가에 있다. 집 안에 숨으면 놈들은 문으로 돌아 들어온다.</div>
+  <div class="controls" style="margin-top:6px; color:#8a7d5e;">성문 곁 망루에 오르면 마을이 한눈에 든다 — 하지만 놈들도 계단을 탄다. 성 밖 — 불탄 농가, 묘지, 얼어붙은 강에도 무언가 남아 있다.</div>
+  <div class="histnote">※ 17세기 조선은 소빙하기 절정의 경신대기근(1670–71)을 겪었으며, 효종 대 나선정벌(1654·1658)의 조선 조총병은 실전 경험을 쌓았다.</div>
+</div>
+
+<div id="deathScreen" class="overlay">
+  <h2>雪 葬</h2>
+  <p>서리는 눈 속에 쓰러졌다.<br>눈보라가 마지막 총성을 지웠고, 단이의 이름은 끝내 닿지 못했다.</p>
+  <div class="retry">— 클릭하여 다시 눈을 뜬다 —</div>
+</div>
+
+<div id="winScreen" class="overlay">
+  <h2>破 曉 — 동이 트다</h2>
+  <p id="winBody"></p>
+  <div class="retry">— 클릭하여 처음으로 —</div>
+</div>
+
+<div id="pauseScreen" class="overlay">
+  <h3>숨을 고른다</h3>
+  <p>클릭하여 계속 · 마우스가 풀리면 시간도 멈춥니다</p>
+</div>
+
+<script type="module" src="./main.js"></script>
+</body>
+</html>
