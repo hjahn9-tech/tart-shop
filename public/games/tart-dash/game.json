@@ -1,0 +1,11 @@
+{
+  "title": "Tart Dash",
+  "tagline": "달리는 타르트! 탭해서 뛰어넘고 베리를 모으세요",
+  "emoji": "🍓",
+  "aspect": {
+    "w": 360,
+    "h": 540
+  },
+  "order": 3,
+  "thumbnail": "thumb.jpg"
+}

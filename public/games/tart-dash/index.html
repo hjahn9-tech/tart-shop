@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <title>Tart Dash</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #2a1a12;
+        overflow: hidden;
+        touch-action: manipulation;
+        font-family: system-ui, sans-serif;
+      }
+      #wrap {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      canvas {
+        width: 100%;
+        height: 100%;
+        max-width: 360px;
+        max-height: 540px;
+        display: block;
+        image-rendering: auto;
+      }
+    </style>
+
+    <!--
+      실물 광고 연결: AdSense + H5 Games Ads 승인 후 아래 두 블록의 주석을 해제하고
+      ca-pub-XXXXXXXX 를 실제 게시자 ID로 교체하세요. 승인 전에는 테스트 모드로 동작합니다.
+    -->
+    <!--
+    <script async data-ad-frequency-hint="30s"
+      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXX"
+      crossorigin="anonymous"></script>
+    <script>
+      window.__ADSENSE_CLIENT = "ca-pub-XXXXXXXX";
+      window.adsbygoogle = window.adsbygoogle || [];
+      window.adBreak = window.adConfig = function (o) { window.adsbygoogle.push(o); };
+    </script>
+    -->
+  </head>
+  <body>
+    <div id="wrap">
+      <canvas id="game" width="360" height="540"></canvas>
+    </div>
+
+    <!-- 광고 래퍼 먼저 로드(전역 AFG 준비) → 게임 로직 -->
+    <script src="./afg-integration.js"></script>
+    <script src="./game.js"></script>
+  </body>
+</html>
