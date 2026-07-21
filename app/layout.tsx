@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { Noto_Sans_KR, Instrument_Serif } from "next/font/google";
 import Link from "next/link";
+import Script from "next/script";
 import { NavLink } from "./nav-link";
-import { SITE_NAME, SITE_URL } from "@/lib/site";
+import { ADSENSE_ID, SITE_NAME, SITE_URL } from "@/lib/site";
 import "./globals.css";
 
 const sans = Noto_Sans_KR({
@@ -39,6 +40,8 @@ export const metadata: Metadata = {
       "설치 없이 브라우저에서 바로 즐기는 원터치 미니게임 아케이드.",
     url: "/",
   },
+  // AdSense 계정 인증 메타 (게시자 ID 설정 시에만)
+  ...(ADSENSE_ID ? { other: { "google-adsense-account": ADSENSE_ID } } : {}),
 };
 
 export default function RootLayout({
@@ -93,6 +96,18 @@ export default function RootLayout({
             </p>
           </div>
         </footer>
+
+        {/* AdSense 로더 (승인·게시자 ID 설정 후 자동 활성화).
+            게임 인터스티셜/리워드 광고는 각 게임 iframe 안에 별도로 존재. */}
+        {ADSENSE_ID && (
+          <Script
+            id="adsbygoogle-loader"
+            async
+            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${ADSENSE_ID}`}
+            crossOrigin="anonymous"
+            strategy="afterInteractive"
+          />
+        )}
       </body>
     </html>
   );
