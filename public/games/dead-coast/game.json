@@ -1,0 +1,11 @@
+{
+  "title": "Dead Coast",
+  "tagline": "4인 건맨을 태운 오픈카로 좀비 해안도로를 질주하는 레일 슈터.",
+  "emoji": "🧟",
+  "aspect": {
+    "w": 960,
+    "h": 560
+  },
+  "order": 12,
+  "thumbnail": "thumb.jpg"
+}

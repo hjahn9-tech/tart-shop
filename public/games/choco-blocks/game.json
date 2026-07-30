@@ -1,0 +1,11 @@
+{
+  "title": "Choco Blocks",
+  "tagline": "추억의 블록 쌓기를 초콜릿 한 판으로. 줄을 맞춰 녹여내세요!",
+  "emoji": "🍫",
+  "aspect": {
+    "w": 360,
+    "h": 540
+  },
+  "order": 11,
+  "thumbnail": "thumb.jpg"
+}

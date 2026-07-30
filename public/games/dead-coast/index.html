@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DEAD COAST — 해안의 좀비 러너</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #05070d; }
+  body { font-family: "Segoe UI", "Apple SD Gothic Neo", system-ui, sans-serif; cursor: none; }
+  #app { position: fixed; inset: 0; }
+  canvas { display: block; }
+
+  /* ---------- HUD ---------- */
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #eaf2ff; user-select: none; }
+
+  .panel { position: absolute; padding: 10px 14px; background: rgba(6,10,20,.42);
+           border: 1px solid rgba(120,180,255,.18); border-radius: 10px; backdrop-filter: blur(3px); }
+
+  #hp-panel { top: 18px; left: 18px; width: 240px; }
+  #hp-label { font-size: 12px; letter-spacing: 2px; opacity: .7; margin-bottom: 6px; }
+  #hp-bar { height: 14px; border-radius: 7px; background: rgba(255,255,255,.09); overflow: hidden; }
+  #hp-fill { height: 100%; width: 100%; border-radius: 7px;
+             background: linear-gradient(90deg,#ff4d4d,#ff9a3d); transition: width .12s linear; }
+
+  #stat-panel { top: 18px; right: 18px; text-align: right; min-width: 160px; }
+  #score { font-size: 30px; font-weight: 700; letter-spacing: 1px; text-shadow: 0 0 12px rgba(120,200,255,.35); }
+  #score-label { font-size: 11px; letter-spacing: 3px; opacity: .55; }
+  #dist { font-size: 13px; opacity: .7; margin-top: 4px; }
+
+  #time-panel { top: 92px; left: 18px; display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  #time-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 10px currentColor; }
+
+  #weapon-panel { position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+                  display: flex; gap: 8px; }
+  .wslot { width: 84px; padding: 8px 6px; text-align: center; border-radius: 9px;
+           background: rgba(6,10,20,.42); border: 1px solid rgba(120,180,255,.16);
+           transition: all .14s ease; }
+  .wslot .wkey { font-size: 10px; opacity: .5; }
+  .wslot .wname { font-size: 12px; font-weight: 600; margin-top: 2px; }
+  .wslot .wchar { font-size: 10px; opacity: .55; margin-top: 2px; }
+  .wslot.active { background: rgba(90,160,255,.28); border-color: rgba(150,210,255,.7);
+                  transform: translateY(-6px) scale(1.06); box-shadow: 0 6px 18px rgba(40,120,255,.3); }
+
+  #combo { position: absolute; top: 42%; left: 50%; transform: translateX(-50%);
+           font-size: 26px; font-weight: 800; color: #ffd34d; opacity: 0;
+           text-shadow: 0 0 16px rgba(255,180,40,.5); transition: opacity .2s; }
+
+  #crosshair { position: fixed; width: 34px; height: 34px; margin: -17px 0 0 -17px;
+               pointer-events: none; z-index: 20; }
+  #crosshair::before, #crosshair::after { content: ""; position: absolute; background: rgba(120,220,255,.85);
+               box-shadow: 0 0 6px rgba(120,220,255,.8); }
+  #crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; margin-left: -1px; }
+  #crosshair::after  { top: 50%; left: 0; height: 2px; width: 100%; margin-top: -1px; }
+
+  #dmg-vignette { position: fixed; inset: 0; pointer-events: none; opacity: 0;
+                  box-shadow: inset 0 0 160px 40px rgba(255,20,20,.8); transition: opacity .1s; }
+
+  /* ---------- Overlays ---------- */
+  .overlay { position: fixed; inset: 0; display: flex; flex-direction: column;
+             align-items: center; justify-content: center; text-align: center; cursor: default;
+             background: radial-gradient(ellipse at center, rgba(10,16,30,.78), rgba(3,5,10,.96));
+             color: #eaf2ff; z-index: 40; }
+  .overlay.hidden { display: none; }
+  .overlay h1 { font-size: 58px; letter-spacing: 6px; font-weight: 800;
+                background: linear-gradient(180deg,#ff5a5a,#ffb14d); -webkit-background-clip: text;
+                background-clip: text; color: transparent; text-shadow: 0 0 40px rgba(255,90,60,.25); }
+  .overlay .sub { font-size: 15px; opacity: .7; margin-top: 8px; letter-spacing: 4px; }
+  .overlay .keys { margin-top: 26px; font-size: 14px; opacity: .8; line-height: 1.9; }
+  .overlay .keys b { color: #9fd0ff; }
+  .btn { margin-top: 30px; padding: 14px 42px; font-size: 17px; font-weight: 700; letter-spacing: 2px;
+         color: #06101e; background: linear-gradient(90deg,#7fd0ff,#5aa0ff); border: none; border-radius: 30px;
+         cursor: pointer; box-shadow: 0 8px 26px rgba(60,140,255,.4); transition: transform .12s; }
+  .btn:hover { transform: translateY(-2px) scale(1.03); }
+  #go-stats { margin-top: 20px; font-size: 18px; line-height: 1.8; }
+  #go-stats span { color: #ffd34d; font-weight: 700; }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <div id="hud">
+    <div id="hp-panel" class="panel">
+      <div id="hp-label">차량 내구도</div>
+      <div id="hp-bar"><div id="hp-fill"></div></div>
+    </div>
+
+    <div id="stat-panel" class="panel">
+      <div id="score-label">SCORE</div>
+      <div id="score">0</div>
+      <div id="dist">0 m</div>
+    </div>
+
+    <div id="time-panel" class="panel">
+      <div id="time-dot"></div>
+      <div id="time-text">낮</div>
+    </div>
+
+    <div id="weapon-panel"></div>
+    <div id="combo"></div>
+  </div>
+
+  <div id="crosshair"></div>
+  <div id="dmg-vignette"></div>
+
+  <div id="start" class="overlay">
+    <h1>DEAD COAST</h1>
+    <div class="sub">해안의 좀비 러너</div>
+    <div class="keys">
+      끝없는 해안도로. 지붕 열린 슈퍼카 위 4인의 전사.<br>
+      쫓아오는 <b>좀비 떼</b>를 쓸어버려라.<br><br>
+      <b>마우스</b> 조준 · <b>클릭</b> 사격 · <b>1~4</b> 무기 전환<br>
+      <b>낮</b>엔 좀비가 사납고, <b>밤</b>엔 느려진다.
+    </div>
+    <button class="btn" id="start-btn">출발</button>
+  </div>
+
+  <div id="gameover" class="overlay hidden">
+    <h1 style="background:linear-gradient(180deg,#ff3a3a,#8a1010);-webkit-background-clip:text;background-clip:text;">
+      차량 파괴</h1>
+    <div id="go-stats"></div>
+    <button class="btn" id="restart-btn">다시 출발</button>
+  </div>
+
+  <script type="importmap">
+  { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+  </script>
+  <script type="module" src="./js/game.js"></script>
+</body>
+</html>

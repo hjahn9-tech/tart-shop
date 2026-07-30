@@ -1,0 +1,11 @@
+{
+  "title": "Star Voyager",
+  "tagline": "우주선을 조종해 소행성 지대를 돌파하는 3D 레일 슈터.",
+  "emoji": "🚀",
+  "aspect": {
+    "w": 900,
+    "h": 560
+  },
+  "order": 10,
+  "thumbnail": "thumb.jpg"
+}
