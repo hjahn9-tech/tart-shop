@@ -1,0 +1,11 @@
+{
+  "title": "태고의 숲",
+  "tagline": "거대한 숲에 놓인 알을 부화시켜 공룡 도감을 완성하세요",
+  "emoji": "🦕",
+  "aspect": {
+    "w": 900,
+    "h": 560
+  },
+  "order": 13,
+  "thumbnail": "thumb.jpg"
+}

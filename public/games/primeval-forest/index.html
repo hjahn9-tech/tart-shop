@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>태고의 숲</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    overflow: hidden; color: #2f3a2c;
+    font-family: -apple-system, 'Pretendard', 'Apple SD Gothic Neo', sans-serif;
+    background: linear-gradient(#a5e0ff 0%, #dff7d0 42%, #a4e07c 43%, #6cc44f 100%);
+  }
+  /* 숲 레이어 */
+  .treeline { position: fixed; left: 0; right: 0; background-repeat: repeat-x; pointer-events: none; }
+  #far {
+    top: 18vh; height: 26vh; opacity: .5;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 60' preserveAspectRatio='none'%3E%3Cpath d='M0 60 L8 22 L16 60 L22 60 L32 10 L42 60 L50 60 L58 28 L66 60 L74 60 L84 16 L94 60 L100 60 L110 24 L120 60 L128 60 L138 8 L148 60 L156 60 L164 30 L172 60 L180 60 L190 18 L200 60 Z' fill='%236fce6d'/%3E%3C/svg%3E");
+    background-size: 200px 100%;
+  }
+  #near {
+    top: 26vh; height: 22vh;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 60' preserveAspectRatio='none'%3E%3Cpath d='M0 60 L12 14 L24 60 L34 60 L46 26 L58 60 L66 60 L80 6 L94 60 L104 60 L116 20 L128 60 L138 60 L152 12 L166 60 L176 60 L188 30 L200 60 Z' fill='%233da95c'/%3E%3C/svg%3E");
+    background-size: 260px 100%;
+  }
+  #mist {
+    top: 34vh; height: 16vh; opacity: .55; pointer-events: none;
+    background: linear-gradient(transparent, #ffffffcc 50%, transparent);
+    animation: drift 40s linear infinite;
+  }
+  @keyframes drift { to { transform: translateX(60px); } }
+  .leaf { position: fixed; top: -5vh; font-size: 14px; opacity: .6; pointer-events: none; animation: fall linear infinite; }
+  @keyframes fall {
+    to { transform: translateY(110vh) translateX(-8vw) rotate(300deg); }
+  }
+  /* 마당 = 숲 바닥 전체 */
+  #yard { position: fixed; left: 0; right: 0; bottom: 0; height: 56vh; }
+  .zomb {
+    position: absolute; width: 84px; height: 84px; image-rendering: pixelated;
+    transition: left 2.8s linear, top 2.8s linear, transform 2.8s linear;
+    transform-origin: bottom center;
+  }
+  #egg { cursor: pointer; animation: wobble 1.6s ease-in-out infinite; filter: drop-shadow(0 3px 3px #0003); }
+  @keyframes wobble { 0%,100% { rotate: -3deg; } 50% { rotate: 3deg; } }
+  /* 떠 있는 UI */
+  .panel {
+    position: fixed; z-index: 999;
+    background: #ffffffb8; backdrop-filter: blur(6px);
+    border: 1px solid #ffffff; border-radius: 8px;
+  }
+  #title { top: 18px; left: 50%; transform: translateX(-50%); text-align: center; padding: 8px 22px; }
+  #title h1 { font-size: 18px; letter-spacing: 7px; }
+  #title small { font-size: 9px; letter-spacing: 3px; color: #7d8a76; }
+  #hud { top: 18px; left: 18px; padding: 8px 14px; font-size: 13px; }
+  #hud .rate { color: #7d8a76; font-size: 12px; }
+  #boxTimer { display: block; color: #e07b1f; font-size: 12px; margin-top: 2px; }
+  #dexBtn { top: 18px; right: 18px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  #log { left: 18px; bottom: 18px; max-width: 340px; padding: 10px 14px; font-size: 12px; color: #5c6a55; line-height: 1.8; }
+  #log:empty { display: none; }
+  #log div:first-child { color: #2f3a2c; }
+  #merges { bottom: 18px; right: 18px; display: flex; gap: 8px; z-index: 999; position: fixed; }
+  #merges button {
+    padding: 9px 14px; font-family: inherit; font-size: 13px; color: #2f3a2c;
+    background: #ffffffb8; backdrop-filter: blur(6px);
+    border: 1px solid #ffffff; border-radius: 8px; cursor: pointer;
+  }
+  #merges button:hover:not(:disabled) { color: #e07b1f; border-color: #e07b1f; }
+  #merges button:disabled { opacity: .45; cursor: default; }
+  /* 도감 오버레이 */
+  #dexWrap {
+    display: none; position: fixed; inset: 0; z-index: 1000;
+    background: #2f3a2c66; padding: 8vh 16px;
+  }
+  #dexPanel {
+    max-width: 560px; margin: 0 auto; padding: 18px; max-height: 84vh; overflow: auto;
+    background: #f7f4ec; border: 1px solid #e2dbcd; border-radius: 10px;
+  }
+  #dexPanel h2 { font-size: 14px; letter-spacing: 3px; margin-bottom: 12px; text-align: center; }
+  #ending { display: none; margin-bottom: 12px; padding: 12px; font-size: 13px; line-height: 1.7;
+    background: #fdfbf6; border: 1px solid #e0b184; border-radius: 6px; color: #8a5a24; }
+  #prestige { margin-top: 8px; padding: 8px 12px; font-family: inherit; font-size: 12px;
+    background: #fdfbf6; border: 1px solid #e0b184; border-radius: 6px; color: #8a5a24; cursor: pointer; }
+  #prestige:hover { background: #e0b184; color: #fff; }
+  #dex { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .card { background: #fdfbf6; border: 1px solid #e2dbcd; border-radius: 6px; padding: 8px 6px; text-align: center; font-size: 12px; }
+  .card canvas { width: 48px; height: 48px; image-rendering: pixelated; }
+  .card .lore { font-size: 10px; color: #8d857a; margin-top: 4px; min-height: 42px; line-height: 1.5; }
+  .card.locked { opacity: .45; }
+</style>
+</head>
+<body>
+<div class="treeline" id="far"></div>
+<div class="treeline" id="near"></div>
+<div class="treeline" id="mist"></div>
+<div id="yard"><canvas id="egg" class="zomb"></canvas></div>
+
+<div class="panel" id="title"><h1>태고의 숲</h1><small>PRIMEVAL FOREST</small></div>
+<div class="panel" id="hud">🦴 <b id="loot">0</b> <span class="rate" id="rate"></span><span id="boxTimer"></span></div>
+<div class="panel" id="dexBtn">도감</div>
+<div class="panel" id="log"></div>
+<div id="merges"><button id="m1"></button><button id="m2"></button></div>
+
+<div id="dexWrap"><div id="dexPanel">
+  <h2>도감</h2>
+  <div id="ending">여기는 태고의 숲 — 모든 공룡이 태어난 곳.<br>그리고 알은, 계속 놓일 것이다.<br>
+    <button id="prestige">숲의 기억으로 잠들기 — 처음부터, 🦴 획득 배수 +1</button></div>
+  <div id="dex"></div>
+</div></div>
+
+<script src="game.js"></script>
+<script>
+// ── 스프라이트 ──────────────────────────────────────
+const PAL = { G:'#1f7a3d', D:'#14562a', B:'#222222', W:'#fdf6e3', R:'#ff8fa3', O:'#ff9d4d', T:'#4fc8ef', Y:'#ffd23f', P:'#bf8bff', E:'#a4e07c' }
+const SPRITES = {
+  jogak: [ // 티노 — 아기 티라노
+    '...GGGGG....','..GGGGGGG...','..GBGGGGG...','..GGGGGGG...',
+    '..GRGGGG....','...GGGGG....','..GGGGGG....','.GGGGGGG....',
+    'G.GGGGG.....','GG.GG.GG....','...GG..GG...','............'],
+  binyl: [ // 뿔이 — 트리케라톱스
+    '..Y.....Y...','..YY...YY...','...OOOOO....','..OOOOOOO...',
+    '..OBOOOBO...','..OOOOOOO...','..OROOORO...','...OOOOO....',
+    '..OOOOOOO...','.OOOOOOOO...','O..OO..OO...','...OO..OO...'],
+  komul: [ // 목긴이 — 브라키오사우루스
+    '....TT......','...TTTT.....','...TBTT.....','....TT......',
+    '....TT......','....TT......','....TTTTT...','...TTTTTTT..',
+    '..TTTTTTTT..','.T.TTTTTTT..','...TT..TT...','...TT..TT...'],
+  ttuk: [ // 파닥이 — 프테라노돈
+    '............','.P........P.','.PP......PP.','.PPP.PP.PPP.',
+    '..PPPPPPPP..','...PBPPBP...','...PPPPPP...','....PPPP....',
+    '....PPPP....','.....PP.....','.....P......','............'],
+  nunal: [ // 가시돌이 — 스테고사우루스
+    '...Y..Y.....','..YY.YY.....','..DDDDDD....','.DDDDDDDDD..',
+    '.DDDDDDDBDD.','.DDDDDDDDDD.','D.DDDDDDDD..','..DDDDDDDD..',
+    '...DD..DD...','...DD..DD...','............','............'],
+  bansong: [ // 렉스왕 — 왕관 쓴 티라노
+    '...Y.Y.Y....','...YYYYY....','...GGGGG....','..GBGGGBG...',
+    '..GGGGGGG...','.RGGGGGGGR..','.RGGGGGGGR..','.RGGGGGGGR..',
+    '..GGGGGGG...','...GGGGG....','..GG...GG...','............'],
+}
+const EGG = [
+  '....WWWW....','...WWWWWW...','..WWWWWWWW..','..WWEWWWWW..',
+  '..WWWWWEWW..','..WWWWWWWW..','..WEWWWWWW..','..WWWWWEWW..',
+  '..WWWWWWWW..','...WWWWWW...','....WWWW....','............']
+const LORE = {
+  jogak:   '알은 따뜻했다. 누군가 방금까지 품고 있었던 것처럼.',
+  binyl:   '숲의 나무들이 이상하게 크다. 아니면, 세상이 아직 어린 걸지도.',
+  komul:   '안개 위로 목을 빼고 한참을 본다. 숲의 끝을 본 적이 없다고 한다.',
+  ttuk:    '합쳐지자 기억이 섞였다. 아주 높은 하늘, 운석이 스치던 밤.',
+  nunal:   '밤마다 땅에 귀를 댄다. 다음 알이 놓일 자리를 정확히 안다.',
+  bansong: '이제 알겠다. 이 숲은 공룡이 사는 곳이 아니다. 태어나는 곳이다.',
+}
+const HUNTS = ['반짝이는 돌멩이', '솔방울', '고사리 잎', '호박(琥珀) 조각', '이상한 발자국 화석', '네잎클로버', '민들레 홀씨']
+
+function drawSprite(cv, rows) {
+  cv.width = 60; cv.height = 60
+  const ctx = cv.getContext('2d')
+  rows.forEach((row, y) => [...row].forEach((ch, x) => {
+    if (PAL[ch]) { ctx.fillStyle = PAL[ch]; ctx.fillRect(x * 5, y * 5, 5, 5) }
+  }))
+}
+
+// ── 상태 ────────────────────────────────────────────
+const SAVE_KEY = 'bansong-save'
+let state = null
+try { state = JSON.parse(localStorage.getItem(SAVE_KEY)) } catch (e) {} // ponytail: 저장 불가 환경은 인메모리로만 진행
+state = state || { loot: 0, zombies: [], dex: {}, pendingEggs: 1, nextBoxAt: Date.now() + eggInterval(0), lastTs: Date.now() }
+const fillDefaults = s => { for (const k of ['pendingEggs', 'hatches', 'merges1', 'memories']) s[k] = s[k] || 0 }
+fillDefaults(state)
+
+function save() { state.lastTs = Date.now(); try { localStorage.setItem(SAVE_KEY, JSON.stringify(state)) } catch (e) {} }
+addEventListener('beforeunload', save)
+// ponytail: 멀티탭은 마지막 저장을 채택하는 수준의 동기화, 정밀 병합이 필요해지면 그때
+addEventListener('storage', e => {
+  if (e.key !== SAVE_KEY || !e.newValue) return
+  try { state = JSON.parse(e.newValue) } catch (err) { return }
+  fillDefaults(state)
+  renderYard(); renderDex(); renderHud()
+})
+// 리사이즈/회전 시 알·공룡이 화면 밖에 남지 않게 재배치
+addEventListener('resize', () => { placeDino(eggEl); yard.querySelectorAll('.zomb:not(#egg)').forEach(placeDino) })
+
+// ── UI ──────────────────────────────────────────────
+const $ = id => document.getElementById(id)
+const yard = $('yard'), eggEl = $('egg')
+
+// 낙엽
+for (let i = 0; i < 10; i++) {
+  const l = document.createElement('div')
+  l.className = 'leaf'; l.textContent = '🍃'
+  l.style.left = Math.random() * 100 + 'vw'
+  l.style.animationDuration = 9 + Math.random() * 10 + 's'
+  l.style.animationDelay = -Math.random() * 15 + 's'
+  document.body.appendChild(l)
+}
+
+function addLog(msg) {
+  const d = document.createElement('div')
+  d.textContent = msg
+  $('log').prepend(d)
+  while ($('log').children.length > 6) $('log').lastChild.remove()
+}
+
+function unlockDex(id) {
+  if (state.dex[id]) return
+  state.dex[id] = true
+  addLog(`도감 등록 — ${SPECIES[id].name}: ${LORE[id]}`)
+  renderDex()
+  if (Object.keys(SPECIES).every(k => state.dex[k])) $('ending').style.display = 'block'
+}
+
+// 화면 아래쪽일수록 크게 — 원근감
+function placeDino(el) {
+  const t = Math.random()
+  el.style.left = Math.random() * (yard.clientWidth - 90) + 'px'
+  el.style.top = t * (yard.clientHeight - 90) + 'px'
+  el.style.transform = `scale(${(0.55 + 0.65 * t).toFixed(2)})`
+  el.style.zIndex = Math.round(t * 100)
+}
+
+function spawnZombie(id) {
+  const cv = document.createElement('canvas')
+  cv.className = 'zomb'
+  drawSprite(cv, SPRITES[id])
+  placeDino(cv)
+  yard.appendChild(cv)
+}
+
+function renderYard() {
+  yard.querySelectorAll('.zomb:not(#egg)').forEach(el => el.remove())
+  state.zombies.forEach(spawnZombie)
+}
+
+function renderDex() {
+  $('dex').innerHTML = ''
+  for (const id of Object.keys(SPECIES)) {
+    const has = state.dex[id]
+    const card = document.createElement('div')
+    card.className = 'card' + (has ? '' : ' locked')
+    const cv = document.createElement('canvas')
+    if (has) drawSprite(cv, SPRITES[id])
+    card.appendChild(cv)
+    card.insertAdjacentHTML('beforeend',
+      `<div>${has ? SPECIES[id].name : '???'}</div><div class="lore">${has ? LORE[id] : ''}</div>`)
+    $('dex').appendChild(card)
+  }
+}
+
+const rateNow = () => lootRate(state.zombies) * (1 + state.memories)
+
+function renderHud() {
+  $('loot').textContent = Math.floor(state.loot)
+  $('rate').textContent = state.zombies.length
+    ? `(+${rateNow()}/분${state.memories ? ` · 기억 ×${state.memories}` : ''})` : ''
+  const left = state.nextBoxAt - Date.now()
+  $('boxTimer').textContent =
+    state.zombies.length >= MAX_ZOMBIES ? '숲이 가득 찼다' :
+    state.pendingEggs > 0 ? `🥚 알 ×${state.pendingEggs} — 어딘가에 놓여 있다` :
+    `다음 알 ${Math.floor(left / 60000)}:${String(Math.floor(left / 1000) % 60).padStart(2, '0')}`
+  eggEl.style.display = (state.pendingEggs > 0 && state.zombies.length < MAX_ZOMBIES) ? 'block' : 'none'
+  for (const t of [1, 2]) {
+    const btn = $('m' + t)
+    btn.textContent = `${t}티어 합체 ×2 + ${mergeCost(state, t)}🦴`
+    btn.disabled = !canMerge(state, t)
+  }
+}
+
+drawSprite(eggEl, EGG)
+eggEl.onclick = () => {
+  if (!state.pendingEggs || state.zombies.length >= MAX_ZOMBIES) return
+  state.pendingEggs--
+  state.hatches++
+  const pool = byTier(1)
+  const id = pool[Math.floor(Math.random() * pool.length)]
+  state.zombies.push(id)
+  addLog(`알이 갈라지더니, ${SPECIES[id].name}이(가) 고개를 내밀었다.`)
+  unlockDex(id)
+  spawnZombie(id)
+  placeDino(eggEl)
+  save(); renderHud()
+}
+
+$('dexBtn').onclick = () => $('dexWrap').style.display = 'block'
+$('prestige').onclick = () => {
+  const m = state.memories + 1
+  state = { loot: 0, zombies: [], dex: {}, pendingEggs: 1, nextBoxAt: Date.now() + eggInterval(0),
+    lastTs: Date.now(), hatches: 0, merges1: 0, memories: m }
+  $('ending').style.display = 'none'
+  $('dexWrap').style.display = 'none'
+  addLog(`숲이 깊이 잠들었다가 깨어났다. 기억 ×${m} — 🦴 획득이 ${m + 1}배가 된다.`)
+  save(); renderYard(); renderDex(); renderHud()
+}
+$('dexWrap').onclick = e => { if (e.target === $('dexWrap')) $('dexWrap').style.display = 'none' }
+
+for (const t of [1, 2]) $('m' + t).onclick = () => {
+  const born = doMerge(state, t, Math.random)
+  if (!born) return
+  addLog(`공룡 둘이 부둥켜안더니… ${SPECIES[born].name}이(가) 되었다.`)
+  unlockDex(born)
+  save(); renderYard(); renderHud()
+}
+
+// ── 루프 ────────────────────────────────────────────
+setInterval(() => {
+  state.loot += rateNow() / 60
+  // 알 적립: 자리를 비웠다면 최대 3개까지 쌓인다
+  while (Date.now() >= state.nextBoxAt) {
+    if (state.pendingEggs >= 3 || state.zombies.length >= MAX_ZOMBIES) {
+      state.nextBoxAt = Date.now() + eggInterval(state.hatches); break
+    }
+    state.pendingEggs++
+    state.nextBoxAt += eggInterval(state.hatches)
+  }
+  renderHud()
+}, 1000)
+setInterval(() => yard.querySelectorAll('.zomb:not(#egg)').forEach(placeDino), 3000)
+setInterval(() => {
+  if (!state.zombies.length) return
+  const z = state.zombies[Math.floor(Math.random() * state.zombies.length)]
+  addLog(`${SPECIES[z].name}이(가) ${HUNTS[Math.floor(Math.random() * HUNTS.length)]}을(를) 물어왔다.`)
+}, 30000)
+setInterval(save, 10000)
+
+// 오프라인 정산
+const away = Date.now() - state.lastTs
+if (away > 60000 && state.zombies.length) {
+  const gained = Math.floor(offlineLoot(state.zombies, away) * (1 + state.memories))
+  state.loot += gained
+  addLog(`자리 비운 사이 공룡들이 보물 ${gained}개를 물어다 놨다.`)
+}
+
+placeDino(eggEl)
+renderYard(); renderDex(); renderHud()
+if (!state.zombies.length) addLog('거대한 숲 한가운데, 따뜻한 알 하나가 놓여 있다.')
+</script>
+</body>
+</html>
