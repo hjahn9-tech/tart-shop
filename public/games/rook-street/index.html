@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ROOK STREET</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#000;
+    font-family:"Helvetica Neue", Arial, sans-serif; color:#ddd; user-select:none; }
+  canvas { display:block; }
+  .hud { position:fixed; pointer-events:none; z-index:5; }
+
+  /* 좌상단 데브 패널 — 영상 시그니처 */
+  #devpanel { top:14px; left:14px; width:230px; background:rgba(10,10,12,.82);
+    padding:14px 16px; font-size:10px; letter-spacing:.12em; pointer-events:auto; }
+  .dp-row { margin-bottom:12px; }
+  .dp-label { display:flex; justify-content:space-between; color:#9a9aa2; margin-bottom:5px; }
+  .dp-label b { color:#e8c66a; font-weight:600; }
+  .dp-row input[type=range] { width:100%; -webkit-appearance:none; height:2px; background:#3a3a42; outline:none; }
+  .dp-row input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:11px; height:11px;
+    border-radius:50%; background:#e8c66a; cursor:pointer; }
+  #dp-stats { color:#6a6a72; font-size:9px; letter-spacing:.08em; }
+
+  /* 상단 중앙 웨이브 */
+  #wavebox { top:20px; left:50%; transform:translateX(-50%); text-align:center; }
+  #wave-label { font-size:11px; letter-spacing:.5em; color:#b8b8c0; }
+  #wave-num { font-size:26px; color:#e8e8ee; margin:2px 0; font-weight:300; }
+  #wave-remain { font-size:10px; letter-spacing:.3em; color:#e8c66a; }
+
+  /* 우상단 스탯 */
+  #stats { top:20px; right:20px; text-align:right; font-size:10px; letter-spacing:.18em; color:#9a9aa2; line-height:1.9; }
+  #stats b { color:#e8e8ee; font-weight:600; margin-left:8px; }
+
+  /* 좌하단 CONDITION */
+  #cond { left:20px; bottom:18px; }
+  #cond-label { font-size:9px; letter-spacing:.35em; color:#c05050; margin-bottom:5px; }
+  #cond-bar { width:200px; height:3px; background:#3a2020; margin-bottom:6px; }
+  #cond-fill { height:100%; width:100%; background:#c03838; transition:width .2s; }
+  #cond-num { font-size:26px; color:#e8e8ee; font-weight:300; }
+
+  /* 크로스헤어 */
+  #xhair { top:50%; left:50%; transform:translate(-50%,-50%); width:14px; height:14px; opacity:.85; }
+  #xhair::before, #xhair::after { content:''; position:absolute; background:#e8e8ee; }
+  #xhair::before { left:6px; top:0; width:2px; height:14px; }
+  #xhair::after { top:6px; left:0; width:14px; height:2px; }
+
+  /* 히트마커 — 명중 시 90ms 플래시 */
+  #hitmark { top:50%; left:50%; width:20px; height:20px; opacity:0;
+    transform:translate(-50%,-50%) rotate(45deg);
+    border:2px solid rgba(255,255,255,.9); border-radius:2px;
+    transition:opacity .12s; }
+
+  #vig { position:fixed; inset:0; z-index:4; pointer-events:none;
+    box-shadow:inset 0 0 140px 30px rgba(0,0,0,.65); }
+  #vig.hit { box-shadow:inset 0 0 140px 60px rgba(180,30,30,.6); }
+
+  .overlay { position:fixed; inset:0; z-index:10; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:14px; background:rgba(4,4,6,.88); text-align:center; cursor:pointer; }
+  .overlay h1 { font-size:38px; letter-spacing:.4em; font-weight:300; color:#e8e8ee; }
+  .overlay .sub { font-size:11px; letter-spacing:.25em; color:#8a8a92; line-height:2.2; }
+  .overlay .go { margin-top:14px; font-size:12px; letter-spacing:.3em; color:#e8c66a; animation:blink 1.6s infinite; }
+  @keyframes blink { 50% { opacity:.25; } }
+  #gameover { display:none; }
+  #go-stats { font-size:12px; letter-spacing:.2em; color:#b8b8c0; line-height:2.4; }
+  #go-stats b { color:#e8c66a; }
+</style>
+</head>
+<body>
+<div id="devpanel" class="hud">
+  <div class="dp-row"><div class="dp-label">STATION LIGHTING <b id="dpv-light">100%</b></div>
+    <input id="dp-light" type="range" min="20" max="140" value="100"></div>
+  <div class="dp-row"><div class="dp-label">SENSITIVITY <b id="dpv-sens">2.2</b></div>
+    <input id="dp-sens" type="range" min="5" max="50" value="22"></div>
+  <div class="dp-row"><div class="dp-label">VOLUME <b id="dpv-vol">85%</b></div>
+    <input id="dp-vol" type="range" min="0" max="100" value="85"></div>
+  <div id="dp-stats">-- fps · -- draws · 0 active</div>
+</div>
+
+<div id="wavebox" class="hud">
+  <div id="wave-label">W A V E</div>
+  <div id="wave-num">1</div>
+  <div id="wave-remain">6 REMAINING</div>
+</div>
+
+<div id="stats" class="hud">
+  KILLS<b id="st-kills">0</b><br>
+  HEADSHOTS<b id="st-heads">0</b><br>
+  ACCURACY<b id="st-acc">0%</b>
+</div>
+
+<div id="cond" class="hud">
+  <div id="cond-label">CONDITION</div>
+  <div id="cond-bar"><div id="cond-fill"></div></div>
+  <div id="cond-num">100</div>
+</div>
+
+<div id="xhair" class="hud"></div>
+<div id="hitmark" class="hud"></div>
+<div id="vig"></div>
+
+<div id="intro" class="overlay">
+  <h1>ROOK STREET</h1>
+  <div class="sub">막차는 끊겼다. 승강장의 마네킹들이 걷기 시작했다.<br>
+    WASD 이동 · 마우스 조준 · 좌클릭 사격 — 머리를 노리면 한 발이면 된다.</div>
+  <div class="go">CLICK TO ENTER</div>
+</div>
+
+<div id="gameover" class="overlay">
+  <h1 style="color:#c05050">CONDITION LOST</h1>
+  <div id="go-stats"></div>
+  <div class="go" id="go-revive" style="color:#8ab4d8">📺 광고 보고 이어하기</div>
+  <div class="go">CLICK TO RETRY</div>
+</div>
+
+<!--
+  실물 광고 연결: AdSense + H5 Games Ads 승인 후 아래 블록의 주석을 해제하고
+  ca-pub-XXXXXXXX 를 실제 게시자 ID로 교체하세요. 승인 전에는 테스트 모드로 동작합니다.
+-->
+<!--
+<script async data-ad-frequency-hint="30s"
+  src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXX"
+  crossorigin="anonymous"></script>
+<script>
+  window.__ADSENSE_CLIENT = "ca-pub-XXXXXXXX";
+  window.adsbygoogle = window.adsbygoogle || [];
+  window.adBreak = window.adConfig = function (o) { window.adsbygoogle.push(o); };
+</script>
+-->
+<script src="./afg-integration.js"></script>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module" src="js/game.js"></script>
+</body>
+</html>

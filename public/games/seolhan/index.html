@@ -152,6 +152,7 @@
 <div id="deathScreen" class="overlay">
   <h2>雪 葬</h2>
   <p>서리는 눈 속에 쓰러졌다.<br>눈보라가 마지막 총성을 지웠고, 단이의 이름은 끝내 닿지 못했다.</p>
+  <div class="retry" id="sh-revive" style="color:#8fb8d8;">📺 광고 보고 그 자리에서 일어난다</div>
   <div class="retry">— 클릭하여 다시 눈을 뜬다 —</div>
 </div>
 
@@ -165,6 +166,22 @@
   <h3>숨을 고른다</h3>
   <p>클릭하여 계속 · 마우스가 풀리면 시간도 멈춥니다</p>
 </div>
+
+<!--
+  실물 광고 연결: AdSense + H5 Games Ads 승인 후 아래 블록의 주석을 해제하고
+  ca-pub-XXXXXXXX 를 실제 게시자 ID로 교체하세요. 승인 전에는 테스트 모드로 동작합니다.
+-->
+<!--
+<script async data-ad-frequency-hint="30s"
+  src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXX"
+  crossorigin="anonymous"></script>
+<script>
+  window.__ADSENSE_CLIENT = "ca-pub-XXXXXXXX";
+  window.adsbygoogle = window.adsbygoogle || [];
+  window.adBreak = window.adConfig = function (o) { window.adsbygoogle.push(o); };
+</script>
+-->
+<script src="./afg-integration.js"></script>
 
 <script type="module" src="./main.js"></script>
 </body>

@@ -247,4 +247,9 @@ export const sfx = {
   tide() { noiseBurst({ dur: 1.4, freq: 260, q: 0.5, vol: 0.28 }); tone({ freq: 130, dur: 1.2, type: 'sine', vol: 0.14, slideTo: 55 }); },
   eruption() { noiseBurst({ dur: 0.35, freq: 420, q: 0.6, vol: 0.3 }); tone({ freq: 90, dur: 0.3, type: 'sine', vol: 0.25, slideTo: 40 }); },
   petrify() { tone({ freq: 1568, dur: 0.5, type: 'triangle', vol: 0.14 }); tone({ freq: 784, dur: 0.35, type: 'square', vol: 0.06, delay: 0.05, slideTo: 392 }); },
+  // 전투 체감 (스프린트1)
+  dodge() { noiseBurst({ dur: 0.16, freq: 3200, q: 0.5, vol: 0.12 }); tone({ freq: 500, dur: 0.12, type: 'sine', vol: 0.05, slideTo: 900 }); },
+  perfect() { [880, 1318].forEach((f, i) => tone({ freq: f, dur: 0.22, type: 'triangle', vol: 0.12, delay: i * 0.05 })); },
+  warn() { tone({ freq: 1200, dur: 0.09, type: 'square', vol: 0.06, slideTo: 900 }); },
+  impact() { noiseBurst({ dur: 0.14, freq: 180, q: 0.7, vol: 0.3 }); tone({ freq: 70, dur: 0.12, type: 'sine', vol: 0.2, slideTo: 45 }); },
 };

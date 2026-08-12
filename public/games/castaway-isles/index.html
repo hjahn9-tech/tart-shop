@@ -27,6 +27,22 @@
 <div id="wrap">
   <canvas id="game" width="1152" height="768"></canvas>
 </div>
+<!--
+  실물 광고 연결: AdSense + H5 Games Ads 승인 후 아래 블록의 주석을 해제하고
+  ca-pub-XXXXXXXX 를 실제 게시자 ID로 교체하세요. 승인 전에는 테스트 모드로 동작합니다.
+-->
+<!--
+<script async data-ad-frequency-hint="30s"
+  src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXX"
+  crossorigin="anonymous"></script>
+<script>
+  window.__ADSENSE_CLIENT = "ca-pub-XXXXXXXX";
+  window.adsbygoogle = window.adsbygoogle || [];
+  window.adBreak = window.adConfig = function (o) { window.adsbygoogle.push(o); };
+</script>
+-->
+<script src="./afg-integration.js"></script>
+
 <script src="js/sprites.js"></script>
 <script src="js/world.js"></script>
 <script src="js/music.js"></script>

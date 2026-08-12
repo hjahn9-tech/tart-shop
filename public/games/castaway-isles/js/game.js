@@ -133,6 +133,7 @@
   let particles = [];
   let bookOpen = false;       // 도감 패널
   let touchR = false;         // 터치 R버튼 (프레임마다 소비)
+  let adPending = false;      // 광고 연동 (Tart Shop AFG): 퀘스트 완료 → 출항 시 전면 광고
   const islandCache = {};     // idx -> 생성된 섬 (세션 내 진행상황 유지)
 
   let isle = null;            // 현재 섬 데이터
@@ -200,6 +201,11 @@
     sfx.sail();
     Music.play('sail');
     save();
+    // 광고 연동 (Tart Shop AFG): 방금 퀘스트를 완료한 섬을 떠날 때만 전면 광고
+    if (adPending) {
+      adPending = false;
+      if (window.AFG) window.AFG.interstitial({ name: 'castaway_island_done' });
+    }
   }
 
   // ---------- 섬 모드 ----------
@@ -281,6 +287,7 @@
       if (player.collected >= q.count && fireOk) {
         player.done = true;
         completed.add(isle.meta.idx);
+        adPending = true;
         save();
         sfx.complete();
         burst(player.x, player.y - 8, ['#ffca3a', '#ff5d8f', '#4a80e8', '#5ed47f']);

@@ -33,16 +33,17 @@ export function goldFlash() {
   f.classList.add('go');
 }
 
-// ---- 떠다니는 데미지 숫자 ----
+// ---- 떠다니는 데미지 숫자 (div 풀링 — 스프린트5) ----
+const dmgPool = [];
 export function damageNumber(x, y, text, cls = '') {
   if (x < 0 || y < 0 || x > innerWidth || y > innerHeight) return;
-  const d = document.createElement('div');
+  const d = dmgPool.pop() || document.createElement('div');
   d.className = `dmg-num ${cls}`;
   d.textContent = text;
   d.style.left = `${x + (Math.random() * 30 - 15)}px`;
   d.style.top = `${y}px`;
-  $('dmg-layer').appendChild(d);
-  setTimeout(() => d.remove(), 950);
+  $('dmg-layer').appendChild(d); // 재삽입 시 CSS 애니메이션 재시작
+  setTimeout(() => { d.remove(); if (dmgPool.length < 40) dmgPool.push(d); }, 950);
 }
 
 // ---- 네임플레이트 (풀링) ----

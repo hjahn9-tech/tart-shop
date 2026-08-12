@@ -110,6 +110,21 @@
 
     #ending .panel { text-align: center; }
   </style>
+  <!--
+    실물 광고 연결: AdSense + H5 Games Ads 승인 후 아래 블록의 주석을 해제하고
+    ca-pub-XXXXXXXX 를 실제 게시자 ID로 교체하세요. 승인 전에는 테스트 모드로 동작합니다.
+  -->
+  <!--
+  <script async data-ad-frequency-hint="30s"
+    src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXX"
+    crossorigin="anonymous"></script>
+  <script>
+    window.__ADSENSE_CLIENT = "ca-pub-XXXXXXXX";
+    window.adsbygoogle = window.adsbygoogle || [];
+    window.adBreak = window.adConfig = function (o) { window.adsbygoogle.push(o); };
+  </script>
+  -->
+  <script src="./afg-integration.js"></script>
   <script type="module" crossorigin src="./assets/index-BJlOUKJf.js"></script>
 </head>
 <body>
@@ -219,7 +234,8 @@
     <div class="panel">
       <h2 id="endTitle">— 끝 —</h2>
       <div class="body" id="endBody"></div>
-      <button onclick="location.reload()">처음부터</button>
+      <!-- 광고 연동 (Tart Shop AFG): 엔딩 → 처음부터 재시작 시 전면 광고 -->
+      <button onclick="window.AFG ? AFG.interstitial({ name: 'needle_gameover', onAfterAd: function () { location.reload(); } }) : location.reload()">처음부터</button>
     </div>
   </div>
 

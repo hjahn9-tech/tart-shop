@@ -1,0 +1,11 @@
+{
+  "title": "ROOK STREET",
+  "tagline": "막차 끊긴 지하철역, 걷기 시작한 마네킹들 — 웨이브 FPS.",
+  "emoji": "🚇",
+  "aspect": {
+    "w": 900,
+    "h": 560
+  },
+  "order": 14,
+  "thumbnail": "thumb.jpg"
+}

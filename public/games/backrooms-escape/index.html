@@ -141,6 +141,7 @@
   <canvas id="death-face" width="512" height="512"></canvas>
   <h2 id="death-title">당신은 백룸의 일부가 되었다</h2>
   <p id="death-cause"></p>
+  <button class="btn" id="continue-btn" style="margin-bottom:14px; color:#8fb8d8; border-color:#4a6a82;">📺 광고 보고 이 레벨에서 계속</button>
   <button class="btn" id="retry-btn">다시 시도</button>
 </div>
 
@@ -149,6 +150,22 @@
   <p id="victory-text"></p>
   <button class="btn" id="again-btn">처음부터</button>
 </div>
+
+<!--
+  실물 광고 연결: AdSense + H5 Games Ads 승인 후 아래 블록의 주석을 해제하고
+  ca-pub-XXXXXXXX 를 실제 게시자 ID로 교체하세요. 승인 전에는 테스트 모드로 동작합니다.
+-->
+<!--
+<script async data-ad-frequency-hint="30s"
+  src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-XXXXXXXX"
+  crossorigin="anonymous"></script>
+<script>
+  window.__ADSENSE_CLIENT = "ca-pub-XXXXXXXX";
+  window.adsbygoogle = window.adsbygoogle || [];
+  window.adBreak = window.adConfig = function (o) { window.adsbygoogle.push(o); };
+</script>
+-->
+<script src="./afg-integration.js"></script>
 
 <script type="module">
 import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
@@ -1093,6 +1110,7 @@ function startGame(){
   player.flashlight=true;
   state.almondCount=0;
   state.startTime=performance.now();
+  usedContinue=false; // 광고 이어하기 — 판당 1회
   hide('title-screen'); hide('death-screen'); hide('victory-screen');
   show('hud');
   state.phase='playing';
@@ -1107,6 +1125,7 @@ function killPlayer(cause){
   document.exitPointerLock();
   drawSmilerFace($('death-face').getContext('2d'), 512);
   $('death-cause').textContent=cause;
+  $('continue-btn').style.display=(!usedContinue && window.AFG)?'':'none';
   hide('hud'); show('death-screen');
 }
 
@@ -1205,11 +1224,38 @@ document.querySelectorAll('.char-card').forEach(card=>{
   });
 });
 $('start-btn').addEventListener('click', ()=>{ if(state.charKey) startGame(); });
-$('retry-btn').addEventListener('click', ()=>{ startGame(); });
+$('retry-btn').addEventListener('click', ()=>{
+  if(window.AFG) window.AFG.interstitial({ name:'backrooms_gameover', onAfterAd: startGame });
+  else startGame();
+});
 $('again-btn').addEventListener('click', ()=>{
-  hide('victory-screen'); show('title-screen');
-  state.phase='title'; setFade(1);
-  setTimeout(()=>setFade(0), 50);
+  const toTitle=()=>{
+    hide('victory-screen'); show('title-screen');
+    state.phase='title'; setFade(1);
+    setTimeout(()=>setFade(0), 50);
+  };
+  if(window.AFG) window.AFG.interstitial({ name:'backrooms_gameover', onAfterAd: toTitle });
+  else toTitle();
+});
+
+/* ---- 광고 연동 (Tart Shop AFG) ---- */
+let usedContinue=false;
+function continueRun(){ // 리워드 시청 완료 → 현재 레벨 처음에서 재개 (진행 유지, 정신력/체력 회복)
+  player.sanity=100;
+  player.stamina=player.staminaMax;
+  hide('death-screen'); show('hud');
+  state.phase='playing';
+  loadLevel(state.levelIndex);
+  lockPointer(renderer.domElement);
+}
+$('continue-btn').addEventListener('click', e=>{
+  e.stopPropagation(); // 사망 화면 클릭과 분리
+  usedContinue=true;
+  window.AFG.rewarded({
+    name:'backrooms_continue',
+    onReward: continueRun,
+    onDismiss: ()=>{ usedContinue=false; },
+  });
 });
 
 /* ============================================================

@@ -2718,9 +2718,16 @@ $('title').addEventListener('click', () => {
 function onDeath() {
   state.phase = 'dead';
   document.exitPointerLock();
+  $('sh-revive').style.display = (!usedRevive && window.AFG) ? '' : 'none';
   $('deathScreen').style.display = 'flex';
 }
-$('deathScreen').addEventListener('click', () => location.reload());
+$('deathScreen').addEventListener('click', () => {
+  if (window.AFG) {
+    window.AFG.interstitial({ name: 'seolhan_gameover', onAfterAd: () => location.reload() });
+  } else {
+    location.reload();
+  }
+});
 
 function onWin() {
   if (state.phase === 'won') return;
@@ -2730,7 +2737,37 @@ function onWin() {
   $('winScreen').style.display = 'flex';
   Sfx.bell();
 }
-$('winScreen').addEventListener('click', () => location.reload());
+$('winScreen').addEventListener('click', () => {
+  if (window.AFG) {
+    window.AFG.interstitial({ name: 'seolhan_gameover', onAfterAd: () => location.reload() });
+  } else {
+    location.reload();
+  }
+});
+
+// ---- 광고 연동 (Tart Shop AFG) ----
+let usedRevive = false;
+function revive() { // 리워드 시청 완료 → 체력 50 + 주변 8m 생사역 정리 후 그 자리에서 재개
+  player.hp = 50;
+  player.alive = true;
+  state.phase = 'combat';
+  for (const z of zombies) {
+    if (!z.dead && z.group.position.distanceTo(player.pos) < 8) {
+      hitZombie(z, 9999, new THREE.Vector3(), false);
+    }
+  }
+  $('deathScreen').style.display = 'none';
+  lockPointer();
+}
+$('sh-revive').addEventListener('click', (e) => {
+  e.stopPropagation(); // 오버레이 리트라이 클릭과 분리
+  usedRevive = true;
+  window.AFG.rewarded({
+    name: 'seolhan_continue',
+    onReward: revive,
+    onDismiss: () => { usedRevive = false; },
+  });
+});
 
 // 포인터 잠금이 풀리면 일시정지 (표시는 메인 루프에서 동기화)
 function lockPointer() {

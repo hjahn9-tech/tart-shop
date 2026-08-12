@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>어둑시니 — 조선 여자 구마사 진희</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@300;500;700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#000; font-family:'Noto Serif KR',serif; }
+  #bg { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  .bgimg { position:fixed; inset:0; background-size:cover; background-position:center;
+    opacity:0; transition:opacity 1.5s; }
+  #vignette { position:fixed; inset:0; pointer-events:none;
+    background:radial-gradient(ellipse at center, transparent 45%, rgba(0,0,0,.75) 100%); }
+
+  /* ---------- 대사 UI ---------- */
+  #ui { position:fixed; left:0; right:0; bottom:0; padding:16px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+  #box { width:min(760px,100%); background:rgba(8,6,4,.82); border:1px solid rgba(200,170,120,.35);
+    border-radius:4px; padding:20px 24px; color:#e8dcc8; cursor:pointer; min-height:110px;
+    box-shadow:0 0 40px rgba(0,0,0,.8); backdrop-filter:blur(3px); }
+  #speaker { font-size:15px; font-weight:700; color:#c9a15f; margin-bottom:8px; letter-spacing:2px; }
+  #speaker.demon { color:#b03030; text-shadow:0 0 8px rgba(180,30,30,.6); }
+  #text { font-size:16px; line-height:1.8; font-weight:300; white-space:pre-wrap; }
+  #text.demon { color:#d8a0a0; }
+  #cursor { display:inline-block; color:#c9a15f; animation:blink 1s infinite; }
+  @keyframes blink { 50% {opacity:0;} }
+  #choices { width:min(760px,100%); display:flex; flex-direction:column; gap:8px; }
+  .choice { background:rgba(20,14,8,.9); border:1px solid rgba(200,170,120,.45); color:#e8dcc8;
+    font-family:inherit; font-size:15px; font-weight:300; padding:12px 18px; text-align:left;
+    border-radius:3px; cursor:pointer; transition:all .15s; }
+  .choice:hover { background:rgba(60,40,20,.95); border-color:#c9a15f; transform:translateX(4px); }
+
+  /* ---------- 상태 표시 ---------- */
+  #hud { position:fixed; top:14px; left:16px; color:#a89878; font-size:13px; letter-spacing:1px;
+    text-shadow:0 1px 4px #000; line-height:1.9; pointer-events:none; }
+  #chapterTitle { position:fixed; top:38%; left:0; right:0; text-align:center; color:#e8dcc8;
+    font-size:30px; font-weight:700; letter-spacing:10px; text-shadow:0 0 30px #000;
+    opacity:0; transition:opacity 1.2s; pointer-events:none; }
+
+  /* ---------- 타이틀 / 엔딩 화면 ---------- */
+  .screen { position:fixed; inset:0; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:18px; background:rgba(0,0,0,.55); z-index:10; text-align:center;
+    padding:24px; transition:opacity .8s; }
+  .screen h1 { color:#e8dcc8; font-size:clamp(30px,6vw,52px); font-weight:700; letter-spacing:12px; text-shadow:0 0 40px #500; }
+  .screen h2 { color:#c9a15f; font-size:16px; font-weight:300; letter-spacing:4px; }
+  .screen p { color:#b8ac96; font-size:15px; font-weight:300; line-height:2; max-width:560px; white-space:pre-wrap; }
+  .screen button { font-family:inherit; font-size:16px; letter-spacing:4px; color:#e8dcc8;
+    background:transparent; border:1px solid #c9a15f; padding:14px 44px; cursor:pointer; transition:all .2s; }
+  .screen button:hover { background:rgba(201,161,95,.18); }
+  #deathScreen h1 { color:#a02020; text-shadow:0 0 40px #600; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div id="bgA" class="bgimg"></div><div id="bgB" class="bgimg"></div>
+<canvas id="bg"></canvas>
+<div id="vignette"></div>
+<div id="chapterTitle"></div>
+<div id="hud"></div>
+
+<div id="ui" class="hidden">
+  <div id="box">
+    <div id="speaker"></div>
+    <div id="text"></div>
+  </div>
+  <div id="choices"></div>
+</div>
+
+<div id="titleScreen" class="screen">
+  <h2>1795년, 조선</h2>
+  <h1>어둑시니</h1>
+  <h2>— 조선 최초의 여자 구마사 —</h2>
+  <p>천주교가 조선에 스며들던 시절,
+역병과 함께 온 어둠이 마을 사람들을 하나씩 데려간다.
+선택에 따라 진희는 살고, 또 죽는다.</p>
+  <button id="startBtn">시작</button>
+</div>
+
+<div id="deathScreen" class="screen hidden">
+  <h1>죽음</h1>
+  <p id="deathText"></p>
+  <button id="retryBtn">이 장의 처음부터</button>
+  <button id="restartBtn">처음부터</button>
+</div>
+
+<div id="endScreen" class="screen hidden">
+  <h1 id="endTitle"></h1>
+  <p id="endText"></p>
+  <button id="endRestartBtn">처음부터</button>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+/* ==================== 스토리 데이터 ==================== */
+// 노드: {scene, speaker, text, next | choices:[{t,next,trust,set}], chapter, death, ending}
+// text·next는 함수 가능(상태 기반 분기).
+const S = {
+/* ---- 서장 ---- */
+p1:{ chapter:'서장 · 귀향', scene:'night',
+  text:'1795년 겨울. 압록강을 넘어온 바람이 산골 마을을 얼렸다.\n안진희, 스물넷. 한양에서 세례를 받고 — 세례명 마리아 — 청국 신부에게 구마 기도까지 배운 그녀가, 십 년 만에 고향으로 돌아왔다.',
+  next:'p2' },
+p2:{ scene:'night', speaker:'진희',
+  text:'(저고리 안섶에 숨긴 묵주를 쥔다)\n사학(邪學)이라 불리는 믿음. 들키면 목이 달아난다.\n그래도… 꿈에서 본 것이 이 마을이었다. 검은 그림자가 지붕마다 내려앉는 꿈.',
+  next:'p3' },
+p3:{ scene:'night', speaker:'촌장',
+  text:'진희 아니냐! 돌아왔구나. 헌데 하필 이런 때에….\n윗마을부터 괴질이 돈다. 열이 오르고, 사흘이면 새카맣게 말라 죽어.',
+  choices:[
+    {t:'"제가 병자를 돌보겠습니다." (나선다)', next:'p4a', trust:1},
+    {t:'조용히 마을을 살핀다 (신중히)', next:'p4b'} ]},
+p4a:{ scene:'night',
+  text:'진희는 그날 밤부터 병자의 이마를 짚었다. 마을 사람들이 수군거렸다.\n"돌아온 안씨 딸이 손이 참 맵차다더라."', next:'c1a' },
+p4b:{ scene:'night',
+  text:'진희는 며칠간 마을을 돌며 지켜보았다. 병은 우물가를 따라 번지지 않았다.\n병은… 사람을 골라서 갔다. 마치 무언가가 고르는 것처럼.', next:'c1a', set:'observed' },
+
+/* ---- 1장 · 역병 ---- */
+c1a:{ chapter:'제1장 · 역병', scene:'plague',
+  text:'옹기장수 돌쇠가 죽었다. 몸이 숯처럼 검게 마른 채였다.\n곡소리가 채 끝나기도 전, 이번엔 그 옆집 노모가 앓아누웠다.', next:'c1b' },
+c1b:{ scene:'plague', speaker:'진희',
+  text:'(병자의 방에 들어선 순간, 숨이 턱 막힌다)\n방 구석. 어둠이 고여 있다. 어둠이… 나를 보고 있다.', next:'c1c' },
+c1c:{ scene:'demon', speaker:'???',
+  text:'— 냄새가 나는구나. 서쪽의 신을 삼킨 계집.\n— 비켜라. 이 마을은 내 곳간이다. 한 명씩, 아껴서 먹을 것이야.', next:'c1d' },
+c1d:{ scene:'plague',
+  text:'어둠이 스르르 벽으로 스며 사라졌다. 병자의 숨이 조금 돌아왔다.\n진희의 손이 떨렸다. 꿈이 아니었다. 저것이 역병의 정체다.',
+  choices:[
+    {t:'몰래 병자마다 구마 기도를 드린다', next:'c1e1', set:'prayer'},
+    {t:'사람들 앞에서 공개적으로 기도한다', next:'c1e2', trust:-2, set:'bold'},
+    {t:'아직은 모른 척한다', next:'c1e3', trust:-1} ]},
+c1e1:{ scene:'plague',
+  text:'진희는 밤마다 병자의 머리맡에서 소리 죽여 기도했다. 기도가 닿은 집은 앓다가도 일어났다.\n"안씨 딸이 다녀가면 낫더라" — 소문이 돌기 시작했다. 좋은 소문만은 아니었다.', next:'c1f' },
+c1e2:{ scene:'plague',
+  text:'마당 한복판, 진희는 십자를 긋고 소리 내어 기도했다. 병자가 일어났다.\n그러나 사람들의 눈빛은 싸늘했다. "저건 무슨 주문이냐. 서학쟁이 아니냐."', next:'c1f' },
+c1e3:{ scene:'plague',
+  text:'진희는 며칠을 망설였다. 그 사이 두 사람이 더 죽었다.\n망설임의 값은 늘 남이 치렀다. 진희는 그날 밤부터 몰래 기도를 시작했다.', next:'c1f', set:'prayer' },
+c1f:{ scene:'night', speaker:'어둑시니',
+  text:'(잠든 진희의 문풍지 밖에서, 목소리가 속삭인다)\n— 계집. 네 기도가 성가시다.\n— 좋다. 그럼 이제부터는… 너를 먹잇감으로 만들어주마. 사람의 마음이란, 역병보다 잘 번지거든.', next:'c2a' },
+
+/* ---- 2장 · 흉흉한 소문 ---- */
+c2a:{ chapter:'제2장 · 흉흉한 소문', scene:'plague',
+  text:'과부 년이 마을에 들어온 뒤로 병이 돌았다더라.\n안씨 딸이 밤마다 이상한 주문을 왼다더라.\n소문은 진희가 손쓸 새도 없이 번졌다. 그리고 — 촌장의 손녀 순복이가 쓰러졌다.', next:'c2b' },
+c2b:{ scene:'plague', speaker:'순복 어미',
+  text:'(진희의 치맛자락을 붙잡고)\n살려주게… 자네가 손이 맵차다며. 뭐든 좋으니 우리 순복이 좀….',
+  choices:[
+    {t:'사람들이 보는 앞에서 아이를 위해 기도한다', next:'c2c1', trust:1},
+    {t:'"밤에 조용히 오겠습니다" (남의 눈을 피한다)', next:'c2c2'} ]},
+c2c1:{ scene:'demon',
+  text:'진희가 기도를 시작하자, 순복의 몸이 활처럼 꺾였다. 아이의 입에서 아이 것이 아닌 소리가 흘러나왔다.\n"이 계집이… 나를 이 아이에게 넣었다아아—"\n어둑시니가 아이의 입을 빌려 웃고 있었다.', next:'c2d' },
+c2c2:{ scene:'demon',
+  text:'한밤, 진희가 순복의 방에 들어서는 순간 아이가 눈을 번쩍 떴다.\n아이의 입에서 어른의 목소리가 흘러나왔다. "밤에 몰래 든 것을 보니, 역시 네가 병을 뿌린 게로구나."\n문밖에 사람들이 모여 있었다. 어둑시니가 부른 것이다.', next:'c2d', trust:-1 },
+c2d:{ scene:'mob',
+  text:'횃불이 모였다. 돌을 쥔 손들이 모였다.\n"마녀다!" "저년이 순복이한테 귀신을 넣었다!" "저년이 온 뒤로 사람이 죽어 나갔다!"\n어둑시니는 나타날 필요도 없었다. 사람의 공포가 저 대신 일하고 있었다.',
+  choices:[
+    {t:'등을 보이고 도망친다', next:'d_mob'},
+    {t:'무릎 꿇고 차분히 해명한다', next:'c2e', trust:1},
+    {t:'"물러서라!" 맞서 소리친다', next:'c2f'} ]},
+c2e:{ scene:'mob',
+  text:'"저는 병을 뿌린 적이 없습니다. 제가 다녀간 집의 병자들이 일어난 것을, 여러분이 보셨지 않습니까."\n돌을 쥔 손들이 잠시 멈칫했다. 그때 —', next:'c2g' },
+c2f:{ scene:'mob',
+  text:'"물러서시오! 병을 부르는 건 내가 아니라—"\n말이 끝나기 전에 첫 돌이 날아와 이마를 스쳤다. 성난 무리에게 맞서는 목소리는 기름과 같았다.\n두 번째 돌이 어깨를 부수는 순간 —', next:'c2g', trust:-1 },
+c2g:{ scene:'mob', speaker:'월향',
+  text:'"멈추어라!!"\n무리를 가르고 늙은 무당 월향이 지팡이를 짚고 나섰다.\n"이 병은 사람의 짓이 아니다. 어둑시니 — 그늘이 굳어 태어난 귀(鬼)다. 나는 반평생 저것을 쫓았으나 힘이 모자랐다. 헌데 이 처자의 곁에서는… 저것이 물러나더구나."', next:'c2h', set:'ally_wol' },
+c2h:{ scene:'mob',
+  text:'무당이 서학쟁이를 감싸다니. 사람들이 웅성거렸다. 돌이 하나둘 땅에 떨어졌다.\n그러나 그때, 관졸들이 들이닥쳤다.\n"안진희는 오라를 받으라! 사학을 퍼뜨리고 괴질을 불렀다는 고변이 들어왔다!"', next:'c3a' },
+d_mob:{ death:'등을 보인 순간, 무리는 짐승이 되었다.\n진희는 마을 어귀 돌담 아래에서 몰매를 맞고 숨을 거두었다.\n어둑시니는 그 겨울, 마을의 절반을 데려갔다.' },
+
+/* ---- 3장 · 관아 ---- */
+c3a:{ chapter:'제3장 · 관아', scene:'jail',
+  text:'차가운 관아 마당. 형틀에 묶인 진희 앞에 현감이 앉았다.\n"네가 요서(妖書)를 들여와 사학을 퍼뜨리고, 주문으로 괴질을 불렀느냐?"',
+  choices:[
+    {t:'"믿는 것은 사실이나, 병을 부른 적은 없습니다" (고백한다)', next:'c3b1', set:'faith'},
+    {t:'"모르는 일입니다" (전부 부인한다)', next:'c3b2'},
+    {t:'침묵한다', next:'c3b3'} ]},
+c3b1:{ scene:'jail',
+  text:'"제가 믿는 분은 사람을 살리라 하셨지, 죽이라 한 적이 없습니다."\n현감의 낯이 굳었다. "제 입으로 사학을 실토하는구나." 매질이 시작되었다.\n그러나 이상하게도, 매를 맞는 동안 마음은 오히려 고요했다. 거짓이 없는 자의 고요함이었다.', next:'c3c' },
+c3b2:{ scene:'jail',
+  text:'"모르는 일입니다. 저는 그저 병자를 돌보았을 뿐입니다."\n매질 끝에 옥에 던져졌다. 그날 밤, 진희는 제 혀가 남긴 거짓의 뒷맛을 곱씹었다.\n어둠 속에서 낄낄대는 소리가 들렸다. 어둑시니는 거짓말의 냄새를 좋아한다.', next:'c3c' },
+c3b3:{ scene:'jail',
+  text:'진희는 입을 열지 않았다. 침묵은 곤장 스무 대로 돌아왔다.\n의식이 흐려질 즈음 옥에 던져졌다.', next:'c3c' },
+c3c:{ scene:'demon', speaker:'어둑시니',
+  text:'(한밤, 옥 안의 어둠이 사람 꼴로 일어선다)\n— 가엾어라. 살리려던 것들의 손에 묶여, 여기서 죽게 생겼구나.\n— 거래를 하자. 내가 누구인지, 내 이름을 들려주마. 이름을 아는 자만이 귀를 부릴 수도, 쫓을 수도 있는 법이니… 어떠냐. 듣겠느냐?',
+  choices:[
+    {t:'"닥쳐라. 네 말은 전부 독이다" (거절한다)', next:'c3d1'},
+    {t:'듣는다 — 놈의 이름은 놈을 쫓을 무기다', next:'c3d2'} ]},
+c3d1:{ scene:'jail',
+  text:'어둑시니는 킥킥대며 어둠으로 흩어졌다.\n— 현명하구나. 허나 이름 없이 나를 쫓을 수 있을까?\n놈의 이름을 모른다는 사실이, 가시처럼 마음에 박혔다.', next:'c3e' },
+c3d2:{ scene:'demon',
+  text:'진희가 고개를 끄덕이는 순간, 어둠이 해일처럼 덮쳐 왔다. 이름을 말해주는 것이 아니라 — 몸속으로 이름을 새기러 들어오는 것이었다.\n귓속에서 놈의 목소리가 폭풍처럼 울렸다.',
+  next:g=>g.flags.has('faith') ? 'c3d3' : 'd_possess' },
+c3d3:{ scene:'demon', speaker:'진희',
+  text:'(매 맞던 형틀 위의 고요가 몸 안에 아직 남아 있었다. 진희는 그 고요를 붙들었다)\n"…나는 네 것이 아니다."\n어둠이 비명을 지르며 튕겨 나갔다. 그리고 그 비명 속에서, 진희는 들었다. 놈이 새기려던 제 이름을.\n— 야광(夜光)을 삼킨 자, 「무명(無明)」.', next:'c3e', set:'name' },
+d_possess:{ death:'어둠이 목구멍으로 쏟아져 들어왔다. 붙들 고요가, 진희에게는 없었다.\n이튿날 아침 옥리가 발견한 것은, 벽에 손톱으로 알 수 없는 글자를 가득 새긴 채 웃으며 죽어 있는 진희였다.\n어둑시니는 그녀의 몸을 입고 옥문을 걸어 나갔다.' },
+c3e:{ scene:'jail', speaker:'김윤',
+  text:'(새벽, 젊은 아전이 소리 없이 옥문을 연다)\n"시간이 없습니다. 현감이 날 밝는 대로 장계를 올려 처형을 청할 겁니다."\n"…어째서 저를?"\n"저도… 세례를 받았습니다. 베드로라 합니다. 당신이 형틀에서 하신 말을 들었습니다."', next:'c3f', set:'ally_yun' },
+c3f:{ scene:'night',
+  text:'김윤이 뒷문을 가리켰다. "산길로 가면 교우촌이 있습니다. 청국에서 오신 신부님이 숨어 계시지요. 허나 마을은… 오늘 밤을 못 넘길지도 모릅니다."',
+  choices:[
+    {t:'산의 교우촌으로 — 신부의 힘을 빌린다', next:'c3g1', set:'ally_priest'},
+    {t:'마을로 돌아간다 — 오늘 밤 사람이 또 죽는다', next:'c3g2', trust:2} ]},
+c3g1:{ scene:'night', speaker:'주 신부',
+  text:'산속 움막. 청국인 신부가 진희의 이야기를 다 듣고는 낡은 성물함을 열었다.\n"구마는 힘겨루기가 아니라 진실 겨루기요. 귀(鬼)는 거짓으로 살고, 거짓이 다 떨어지면 무너집니다."\n신부는 성수와 십자고상을 진희의 손에 쥐여 주고, 함께 산을 내려왔다.', next:'c4a' },
+c3g2:{ scene:'plague',
+  text:'진희는 밤새 병자의 집들을 돌았다. 세 사람의 숨을 붙들어 놓았다.\n"관아에서 도망친 죄인이…" 수군거리던 사람들도, 제 식구의 숨이 돌아오는 것을 보고는 말을 삼켰다.\n민심이, 아주 조금씩, 돌아서고 있었다.', next:'c4a' },
+
+/* ---- 4장 · 어둑시니 ---- */
+c4a:{ chapter:'제4장 · 어둑시니', scene:'demon',
+  text:'그날 밤, 마을의 모든 개가 일제히 울음을 그쳤다.\n촌장이 마을 한가운데 우물가에 서 있었다. 아니 — 촌장의 몸을 입은 무언가가.\n"다들 들어라아 — 이 모든 재앙은 안진희, 저 계집이 부른 것이다아 —"', next:'c4b' },
+c4b:{ scene:'demon', speaker:'어둑시니',
+  text:'(촌장의 목이 꺾이며, 진희를 향해 웃는다)\n— 마지막 거래다, 계집.\n— 네가 스스로 저 우물에 몸을 던지면, 이 마을은 살려주마. 네 목숨 하나로 모두가 산다. 네 신이 좋아할 셈법 아니냐?',
+  choices:[
+    {t:'우물에 몸을 던진다 — 내 목숨으로 모두를 살린다', next:'d_well'},
+    {t:'"귀신은 거짓으로 산다. 나는 너와 셈하지 않는다"', next:'c4c'} ]},
+d_well:{ death:'차가운 물이 진희를 삼켰다.\n우물 밑바닥에서, 진희는 어둑시니의 웃음소리를 들었다.\n— 어리석은 것. 귀신의 약조를 믿다니.\n그 겨울이 끝나기 전, 마을에서는 더 이상 곡소리를 내 줄 사람조차 남지 않았다.' },
+c4c:{ scene:'demon',
+  text:'어둑시니의 웃음이 뚝 그쳤다. 거짓을 거절당한 귀신은 벌거벗은 것과 같다.\n촌장의 몸이 실 끊긴 인형처럼 무너지고, 그 그림자가 우물 위로 산처럼 부풀어 올랐다.\n구마의 시간이었다.', next:'c5a' },
+
+/* ---- 5장 · 구마 ---- */
+c5a:{ chapter:'제5장 · 구마', scene:'demon',
+  text:g=>{
+    let t='진희는 우물 앞에 섰다. 품에서 묵주를 꺼내 — 더는 숨기지 않고 — 높이 들었다.';
+    if(g.flags.has('ally_wol')) t+='\n왼편에 월향이 지팡이를 짚고 섰다. "늙은 무당의 마지막 굿이다."';
+    if(g.flags.has('ally_yun')) t+='\n오른편에 김윤이 섰다. "베드로도 닭 울기 전까진 세 번 도망쳤다지요. 저는 오늘 안 도망칩니다."';
+    if(g.flags.has('ally_priest')) t+='\n등 뒤에서 주 신부가 성수를 뿌리며 라틴어 기도를 시작했다.';
+    if(g.trust>=4) t+='\n그리고 — 마을 사람들이 하나둘, 떨리는 손으로 등불을 들고 우물가로 모여들었다.';
+    return t; },
+  next:'c5b' },
+c5b:{ scene:'demon', speaker:'어둑시니',
+  text:'— 두려움을 다오. 미움을 다오. 너희가 서로를 물어뜯던 그 맛을 다오!\n어둠이 폭풍처럼 몰아쳤다. 등불이 하나둘 꺼져 갔다.',
+  next:g=>g.flags.has('name') ? 'c5c_name' : 'c5c_noname' },
+c5c_name:{ scene:'demon', speaker:'진희',
+  text:'"나는 네 이름을 안다."\n어둠이 움찔했다.\n"야광을 삼킨 자, 무명(無明)! 빛이 없다는 뜻의 이름을 가진 자여 — 그러니 너는 빛 앞에서 아무것도 아니다!"',
+  next:g=>g.flags.has('ally_priest') ? 'end_live' : 'end_martyr' },
+c5c_noname:{ scene:'demon',
+  text:'진희는 놈의 이름을 알지 못했다. 이름 없는 어둠은 잡히지 않는 물과 같아서, 기도가 뚫고 들어갈 자리를 찾지 못했다.\n어둠이 진희의 목을 감아 왔다. 방법은 하나뿐이었다 — 제 몸을 그릇 삼아 놈을 가두는 것.',
+  choices:[
+    {t:'내 몸을 봉인의 그릇으로 바친다', next:'end_seal'},
+    {t:'버틸 수 없다 — 물러선다', next:'d_final'} ]},
+d_final:{ death:'물러서는 발끝을 어둠이 붙들었다.\n등불이 모두 꺼진 우물가에서, 진희의 기도 소리가 뚝 끊겼다.\n이듬해 봄, 그 마을이 있던 자리에는 아무도 살지 않았다.' },
+
+end_live:{ ending:'생존 — 새벽',
+  text:'신부의 기도와 진희의 이름 부름이 맞물리는 순간, 어둠이 안쪽부터 무너져 내렸다.\n무명은 제 이름처럼 — 아무것도 아닌 것이 되어 흩어졌다.\n\n동이 텄다. 살아남은 사람들이 우물가에서 울며 웃었다.\n진희는 조용히 마을을 떠났다. 병든 마을이 또 있고, 어둠은 어디에나 고이기 때문이다.\n\n사람들은 훗날 그녀를 이렇게 불렀다.\n— 조선 최초의 여자 구마사, 안진희 마리아.' },
+end_martyr:{ ending:'순교 — 이름을 부른 값',
+  text:'이름이 불린 어둠은 비명을 지르며 흩어졌다. 그러나 신부의 기도 없이 홀로 그 이름을 감당한 진희의 몸은, 등잔의 기름처럼 다 타 버렸다.\n\n동이 트는 우물가에서, 진희는 사람들의 무릎에 안겨 눈을 감았다.\n"…이제, 아무도 안 죽어요."\n\n마을은 살았다. 사람들은 우물가에 작은 돌무덤을 쌓았고,\n박해가 끝난 먼 훗날, 그 자리에 그녀의 이름을 새겼다.\n— 조선 최초의 여자 구마사, 안진희 마리아.' },
+end_seal:{ ending:'봉인 — 그릇이 된 사람',
+  text:'진희는 두 팔을 벌려 어둠을 제 안으로 받아들였다. 그리고 스스로 우물 안으로 걸어 내려가, 안에서 뚜껑을 닫아걸었다.\n\n마을은 살았다. 역병은 그쳤다.\n다만 그날 이후, 그 우물에서는 밤마다 나지막한 기도 소리가 들린다고 한다.\n어둠을 안은 채, 여전히 싸우고 있는 목소리가.\n\n사람들은 그 우물을 함부로 열지 않는다. 대신 해마다 첫눈이 오면, 우물가에 등불 하나를 밝혀 둔다.' },
+};
+
+/* ==================== 게임 엔진 ==================== */
+const $=id=>document.getElementById(id);
+let G, checkpointId, checkpointState;
+const newState=()=>({trust:3, flags:new Set()});
+const snap=g=>({trust:g.trust, flags:new Set(g.flags)});
+
+// 그래프 무결성 자체 점검
+for(const [id,n] of Object.entries(S)){
+  const targets=[];
+  if(typeof n.next==='string') targets.push(n.next);
+  (n.choices||[]).forEach(c=>targets.push(c.next));
+  targets.forEach(t=>{ if(!S[t]) console.error(`끊긴 분기: ${id} → ${t}`); });
+}
+
+let typing=null, fullText='', currentNode=null;
+function typeText(txt){
+  clearInterval(typing); fullText=txt;
+  const el=$('text'); el.textContent=''; let i=0;
+  typing=setInterval(()=>{
+    el.textContent=txt.slice(0,++i);
+    if(i>=txt.length){ clearInterval(typing); typing=null; showChoices(); }
+  },22);
+}
+function skipType(){ if(typing){ clearInterval(typing); typing=null; $('text').textContent=fullText; showChoices(); } }
+
+function go(id){
+  const n=S[id]; currentNode=n;
+  if(n.death) return showDeath(n.death);
+  if(n.ending) return showEnding(n.ending, n.text);
+  if(n.set) G.flags.add(n.set);
+  if(n.trust) G.trust+=n.trust;
+  if(n.chapter){ checkpointId=id; checkpointState=snap(G); flashChapter(n.chapter); }
+  if(n.scene) setScene(n.scene);
+  const demon=n.speaker==='어둑시니'||n.speaker==='???';
+  $('speaker').textContent=n.speaker||'';
+  $('speaker').className=demon?'demon':'';
+  $('text').className=demon?'demon':'';
+  $('choices').innerHTML='';
+  updateHud();
+  typeText(typeof n.text==='function'?n.text(G):n.text);
+}
+function resolveNext(next){ return typeof next==='function'?next(G):next; }
+function showChoices(){
+  const n=currentNode, box=$('choices'); box.innerHTML='';
+  if(n.choices){
+    n.choices.forEach(c=>{
+      const b=document.createElement('button'); b.className='choice'; b.textContent=c.t;
+      b.onclick=()=>{ if(c.set)G.flags.add(c.set); if(c.trust)G.trust+=c.trust; updateHud(); go(resolveNext(c.next)); };
+      box.appendChild(b);
+    });
+  } else if(n.next){
+    $('text').insertAdjacentHTML('beforeend',' <span id="cursor">▼</span>');
+  }
+}
+$('box').addEventListener('click',()=>{
+  if(typing) return skipType();
+  if(currentNode && !currentNode.choices && currentNode.next) go(resolveNext(currentNode.next));
+});
+
+function updateHud(){
+  const allies=['ally_wol','ally_yun','ally_priest'].filter(f=>G.flags.has(f)).length;
+  const heart=G.trust>=5?'따뜻함':G.trust>=3?'술렁임':G.trust>=1?'싸늘함':'적의';
+  $('hud').innerHTML=`민심 · ${heart}<br>곁에 선 사람 · ${allies}`;
+}
+function flashChapter(t){
+  const el=$('chapterTitle'); el.textContent=t; el.style.opacity=1;
+  setTimeout(()=>el.style.opacity=0,2600);
+}
+function showDeath(txt){
+  $('ui').classList.add('hidden');
+  $('deathText').textContent=txt;
+  $('deathScreen').classList.remove('hidden');
+  setScene('demon');
+}
+function showEnding(title,txt){
+  $('ui').classList.add('hidden');
+  $('endTitle').textContent=title;
+  $('endText').textContent=txt;
+  $('endScreen').classList.remove('hidden');
+  setScene(title.startsWith('봉인')?'night':'dawn');
+}
+function startGame(fromCheckpoint){
+  ['titleScreen','deathScreen','endScreen'].forEach(s=>$(s).classList.add('hidden'));
+  $('ui').classList.remove('hidden');
+  if(fromCheckpoint && checkpointState){ G=snap(checkpointState); go(checkpointId); }
+  else { G=newState(); checkpointId='p1'; checkpointState=snap(G); go('p1'); }
+}
+$('startBtn').onclick=()=>startGame(false);
+$('retryBtn').onclick=()=>startGame(true);
+$('restartBtn').onclick=()=>startGame(false);
+$('endRestartBtn').onclick=()=>startGame(false);
+
+/* ==================== Three.js 씬 ==================== */
+const canvas=$('bg');
+const renderer=new THREE.WebGLRenderer({canvas, antialias:true, alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(50,1,.1,200);
+
+// 땅
+const ground=new THREE.Mesh(new THREE.PlaneGeometry(200,200),
+  new THREE.MeshStandardMaterial({color:0x1a1a22, roughness:1}));
+ground.rotation.x=-Math.PI/2; scene.add(ground);
+
+// 초가/기와집 실루엣 (몸통 + 사각뿔 지붕)
+const houseMat=new THREE.MeshStandardMaterial({color:0x14100c, roughness:1});
+const roofMat=new THREE.MeshStandardMaterial({color:0x0c0a08, roughness:1});
+const rng=(a,b)=>a+Math.random()*(b-a);
+for(let i=0;i<14;i++){
+  const w=rng(2.5,4.5), h=rng(1.6,2.4), d=rng(2.5,4);
+  const g=new THREE.Group();
+  g.add(new THREE.Mesh(new THREE.BoxGeometry(w,h,d),houseMat));
+  const roof=new THREE.Mesh(new THREE.ConeGeometry(Math.max(w,d)*.85,h*.9,4),roofMat);
+  roof.position.y=h/2+h*.45; roof.rotation.y=Math.PI/4; g.add(roof);
+  const ang=rng(0,Math.PI*2), r=rng(8,26);
+  g.position.set(Math.cos(ang)*r, h/2, Math.sin(ang)*r-6);
+  g.rotation.y=rng(0,Math.PI*2);
+  scene.add(g);
+}
+// 우물 (마을 중앙)
+const well=new THREE.Mesh(new THREE.CylinderGeometry(1,1.1,1,10),
+  new THREE.MeshStandardMaterial({color:0x22201c, roughness:1}));
+well.position.set(0,.5,-3); scene.add(well);
+// 고목
+const tree=new THREE.Group();
+const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.3,.6,7,6),houseMat);
+trunk.position.y=3.5; tree.add(trunk);
+for(let i=0;i<4;i++){
+  const br=new THREE.Mesh(new THREE.CylinderGeometry(.08,.2,3,5),houseMat);
+  br.position.set(rng(-1,1),5+rng(0,1.5),rng(-1,1));
+  br.rotation.set(rng(-1,1),0,rng(-1,1)); tree.add(br);
+}
+tree.position.set(-9,0,-10); scene.add(tree);
+// 달
+const moon=new THREE.Mesh(new THREE.CircleGeometry(3,32),
+  new THREE.MeshBasicMaterial({color:0xd8dce8, transparent:true, opacity:.85}));
+moon.position.set(14,20,-60); scene.add(moon);
+
+// 조명
+const amb=new THREE.AmbientLight(0x404860,.9); scene.add(amb);
+const key=new THREE.DirectionalLight(0x8899cc,.7); key.position.set(5,10,5); scene.add(key);
+const torch=new THREE.PointLight(0xff7722,0,25); torch.position.set(0,2.5,2); scene.add(torch);
+
+// 어둑시니 (검은 형체 + 붉은 눈)
+const demonGrp=new THREE.Group();
+const demonMat=new THREE.MeshBasicMaterial({color:0x000000, transparent:true, opacity:0});
+demonGrp.add(new THREE.Mesh(new THREE.ConeGeometry(1.6,5.5,8),demonMat));
+const eyeMat=new THREE.MeshBasicMaterial({color:0xff2020, transparent:true, opacity:0});
+[[-.35,1.6,.9],[.35,1.6,.9]].forEach(p=>{
+  const e=new THREE.Mesh(new THREE.SphereGeometry(.09,8,8),eyeMat);
+  e.position.set(...p); demonGrp.add(e);
+});
+demonGrp.position.set(0,2.75,-6); scene.add(demonGrp);
+
+// 군중 실루엣 (mob 씬 전용)
+const mobGrp=new THREE.Group();
+const flameMat=new THREE.MeshBasicMaterial({color:0xffaa33});
+const crowdMat=new THREE.MeshStandardMaterial({color:0x2a2018, roughness:1});
+for(let i=0;i<12;i++){
+  const p=new THREE.Group();
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(.35,.5,1.6,6),crowdMat); body.position.y=.8;
+  const head=new THREE.Mesh(new THREE.SphereGeometry(.22,8,8),crowdMat); head.position.y=1.75;
+  p.add(body,head);
+  if(i%3===0){
+    const fl=new THREE.Mesh(new THREE.SphereGeometry(.13,6,6),flameMat);
+    fl.position.set(.4,2.4,0); p.add(fl);
+  }
+  p.position.set(rng(-5,5), 0, rng(3,7.5)); // 카메라와 우물 사이, 집에 안 가리는 근경
+  p.lookAt(0,1,-3);
+  mobGrp.add(p);
+}
+mobGrp.visible=false; scene.add(mobGrp);
+
+// 옥창살 (jail 씬 전용)
+const jailGrp=new THREE.Group();
+const barMat=new THREE.MeshStandardMaterial({color:0x3a3228, roughness:1});
+for(let i=-4;i<=4;i++){
+  const bar=new THREE.Mesh(new THREE.CylinderGeometry(.09,.09,6,6),barMat);
+  bar.position.set(i*.7,3,0); jailGrp.add(bar);
+}
+[1.8,4.2].forEach(y=>{
+  const beam=new THREE.Mesh(new THREE.BoxGeometry(6.4,.18,.18),barMat);
+  beam.position.set(0,y,0); jailGrp.add(beam);
+});
+jailGrp.position.set(0,0,4); jailGrp.visible=false; scene.add(jailGrp);
+
+// 입자 (눈 / 재)
+const P_COUNT=600;
+const pGeo=new THREE.BufferGeometry();
+const pPos=new Float32Array(P_COUNT*3), pVel=new Float32Array(P_COUNT);
+for(let i=0;i<P_COUNT;i++){
+  pPos[i*3]=rng(-30,30); pPos[i*3+1]=rng(0,25); pPos[i*3+2]=rng(-30,15);
+  pVel[i]=rng(.01,.04);
+}
+pGeo.setAttribute('position',new THREE.BufferAttribute(pPos,3));
+const pMat=new THREE.PointsMaterial({color:0xffffff,size:.12,transparent:true,opacity:.7});
+scene.add(new THREE.Points(pGeo,pMat));
+
+/* 씬 프리셋 */
+const PRESETS={
+  night:{fog:0x0d1626,amb:0x404860,key:0x8899cc,torch:0,particle:0xeef2ff,up:false,demon:0,cam:[0,4,13]},
+  plague:{fog:0x101a12,amb:0x2e4034,key:0x6a8a70,torch:0,particle:0x99aa88,up:true,demon:0,cam:[3,3.5,12]},
+  mob:{fog:0x1c0e05,amb:0x553318,key:0x995522,torch:3.5,particle:0xffaa55,up:true,demon:0,cam:[0,4.5,13],look:[0,1,1]},
+  jail:{fog:0x060608,amb:0x181820,key:0x333344,torch:.5,particle:0x445566,up:false,demon:0,cam:[0,2.5,8]},
+  demon:{fog:0x160406,amb:0x401515,key:0x662222,torch:.8,particle:0xff4433,up:true,demon:1,cam:[0,3,10]},
+  dawn:{fog:0x9a7a58,amb:0xb09070,key:0xffd9a0,torch:0,particle:0xfff4e0,up:false,demon:0,cam:[0,5,15]},
+};
+const cur={fog:new THREE.Color(0x0d1626),amb:new THREE.Color(0x404860),key:new THREE.Color(0x8899cc),
+  torch:0,demon:0,cam:new THREE.Vector3(0,4,13),look:new THREE.Vector3(0,2,-5)};
+let target=PRESETS.night, particleUp=false;
+scene.fog=new THREE.FogExp2(cur.fog,.04);
+scene.background=cur.fog;
+
+/* 배경 이미지(선택): assets/night.jpg 등 씬 이름과 같은 파일이 있으면 자동으로 배경에 사용 */
+const BG={};
+Object.keys(PRESETS).forEach(n=>{
+  const im=new Image();
+  im.onload=()=>{ BG[n]=`assets/${n}.jpg`; if(curScene===n) setBg(n); };
+  im.src=`assets/${n}.jpg`;
+});
+let bgFlip=false, curScene='night';
+function setBg(name){
+  const a=$('bgA'), b=$('bgB'), back=bgFlip?b:a, front=bgFlip?a:b;
+  if(BG[name]){
+    back.style.backgroundImage=`url(${BG[name]})`;
+    back.style.opacity=1; front.style.opacity=0; bgFlip=!bgFlip;
+  } else { a.style.opacity=0; b.style.opacity=0; }
+}
+
+function setScene(name){
+  curScene=PRESETS[name]?name:'night';
+  target=PRESETS[curScene];
+  particleUp=target.up;
+  pMat.color.set(target.particle);
+  mobGrp.visible=curScene==='mob';
+  jailGrp.visible=curScene==='jail';
+  setBg(curScene);
+}
+setScene('night');
+window.setScene=setScene; // 콘솔에서 씬/배경이미지 미리보기용
+window._dbg={scene, cur, mobGrp, jailGrp, camera};
+
+function resize(){
+  const w=innerWidth,h=innerHeight;
+  renderer.setSize(w,h,false);
+  camera.aspect=w/h; camera.updateProjectionMatrix();
+}
+addEventListener('resize',resize); resize();
+
+const tmpC=new THREE.Color(), tgtCam=new THREE.Vector3(), tgtLook=new THREE.Vector3();
+function animate(t){
+  const s=t*.001, L=.03;
+  // 색·조명 서서히 전환
+  cur.fog.lerp(tmpC.set(target.fog),L); scene.fog.color.copy(cur.fog);
+  scene.background=BG[curScene]?null:cur.fog; // 이미지 있으면 캔버스 투명 → 이미지 노출
+  amb.color.lerp(tmpC.set(target.amb),L);
+  key.color.lerp(tmpC.set(target.key),L);
+  cur.torch+=(target.torch-cur.torch)*L;
+  torch.intensity=cur.torch>0.05 ? cur.torch+Math.sin(s*13)*cur.torch*.25 : 0;
+  // 어둑시니 등장/퇴장
+  cur.demon+=(target.demon-cur.demon)*L;
+  demonMat.opacity=cur.demon*.92; eyeMat.opacity=cur.demon;
+  demonGrp.position.y=2.75+Math.sin(s*.8)*.3;
+  demonGrp.rotation.y=Math.sin(s*.3)*.2;
+  // 카메라: 프리셋 위치 + 미세한 흔들림
+  tgtCam.set(...target.cam);
+  cur.cam.lerp(tgtCam,L*.7);
+  tgtLook.set(...(target.look||[0,2,-5]));
+  cur.look.lerp(tgtLook,L*.7);
+  camera.position.set(cur.cam.x+Math.sin(s*.4)*.4, cur.cam.y+Math.sin(s*.6)*.15, cur.cam.z);
+  camera.lookAt(cur.look);
+  // 입자
+  const pos=pGeo.attributes.position.array;
+  for(let i=0;i<P_COUNT;i++){
+    pos[i*3+1]+=particleUp?pVel[i]:-pVel[i];
+    pos[i*3]+=Math.sin(s+i)*.004;
+    if(pos[i*3+1]>25)pos[i*3+1]=0;
+    if(pos[i*3+1]<0)pos[i*3+1]=25;
+  }
+  pGeo.attributes.position.needsUpdate=true;
+  renderer.render(scene,camera);
+  requestAnimationFrame(animate);
+}
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>

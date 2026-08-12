@@ -49,13 +49,17 @@ export const CHARACTERS = {
 };
 
 // 누적 경험치 테이블 (index = 레벨-1). Lv.50 확장 시 뒤에 이어붙인다.
+// 스프린트6 재산정: "L층까지 몰살 누적 XP × 0.96" — 전 층 클리어 시 층 번호 ≈ 레벨이 실제로 지켜진다
+// (도구: 층 데이터에서 자동 생성. 층 exp를 바꾸면 이 표도 재생성할 것 — combat-test가 정합성을 검사한다)
 export const LEVEL_XP = [
-  0, 50, 130, 240, 380, 550, 750, 980, 1240, 1530,                      // 제1성 (Lv.1~10)
-  1850, 2200, 2580, 2990, 3430, 3900, 4400, 4930, 5490, 6080,           // 제2성 (Lv.11~20)
-  6700, 7350, 8030, 8740, 9480, 10250, 11050, 11880, 12740, 13630,          // 제3성 (Lv.21~30)
-  14550, 15500, 16480, 17490, 18530, 19600, 20700, 21830, 22990, 24180,     // 제4성 (Lv.31~40)
-  25400, 26650, 27930, 29240, 30580, 31950, 33350, 34780, 36240, 37730,     // 제5성 (Lv.41~50)
+  0, 85, 196, 323, 465, 642, 815, 980, 1208, 1485,                          // 제1성 (Lv.1~10)
+  1692, 1932, 2187, 2458, 2779, 3044, 3322, 3695, 4084, 4503,               // 제2성 (Lv.11~20)
+  4910, 5284, 5674, 6079, 6552, 7041, 7492, 8184, 8719, 9280,               // 제3성 (Lv.21~30)
+  9983, 10511, 11054, 11613, 12258, 12920, 13525, 14068, 14783, 15516,      // 제4성 (Lv.31~40)
+  16514, 17196, 17893, 18605, 19333, 20168, 20832, 21702, 22589, 23511,     // 제5성 (Lv.41~50)
 ];
+// 후반 성일수록 적 공격력 상향 (난이도 역전 방지 — 스프린트6)
+export const CASTLE_DMG = [1, 1, 1.15, 1.3, 1.45];
 export const MAX_LEVEL = 50;
 
 // ---- 축복 강화 (제단) — 십부장/보스가 떨구는 '축복 성수'로 구매, 영구 저장 ----
@@ -69,6 +73,124 @@ export const UPGRADES = [
 
 // ---- 회차(週回) 배율 — cycle 2부터 적용 ----
 export const CYCLE = { hp: 0.8, dmg: 0.5, exp: 0.5 }; // 회차당 +80% HP, +50% 공격, +50% EXP
+
+// ---- 무브 정의 (스프린트2) — 불변 콘텐츠. 런타임 타이머는 Enemy 인스턴스에만 둔다 ----
+// 공통 규약: windup 동안 텔레그래프 표시 → 접촉 시점에 사거리/각도 권위적 재검증.
+// dmg는 spec.dmg 대비 배율. reach/r은 enemy.radius에 더해지는 값(=체급 비례).
+export const MOVES = {
+  slash: { // 기본 베기 — 전방 부채꼴
+    kind: 'melee', windup: 0.55, reach: 1.7, arc: 1.8, dmg: 1.0, knock: 7, cd: 1.4,
+    trigger: 1.2, anim: 'attack',
+  },
+  combo: { // 2연격 — 첫 타 후 0.35s 뒤 강한 두 번째 타 (같은 텔레그래프 계약)
+    kind: 'melee', windup: 0.5, reach: 1.9, arc: 1.8, dmg: 0.7, knock: 4, cd: 3.6,
+    trigger: 1.2, anim: 'attack', second: { at: 0.35, dmg: 1.2, knock: 8 },
+  },
+  charge: { // 돌진 — 직선 텔레그래프 후 대상 방향으로 질주, 경로 접촉
+    kind: 'charge', windup: 0.7, speed: 15, dur: 0.75, width: 1.5, dmg: 1.5, knock: 11,
+    cd: 6.5, minRange: 4.5, maxRange: 14, recovery: 0.7, anim: 'run',
+  },
+  slam: { // 점프 강타 — 착지점 링 텔레그래프, 원형 AoE
+    kind: 'slam', windup: 0.9, r: 3.3, dmg: 1.35, knock: 9, cd: 7.5, maxRange: 9,
+    recovery: 0.55, anim: 'attack',
+  },
+  // ---- 보스 시그니처 (스프린트7) — charm 필드: 접촉 시 매혹(gold=황금화), 무적/내성 게이트는 applyCharm이 소유 ----
+  charmDash: { // 아스모데우스 — 스치면 매혹되는 돌진
+    kind: 'charge', windup: 0.8, speed: 17, dur: 0.6, width: 1.8, dmg: 1.2, knock: 8,
+    cd: 8, minRange: 4, maxRange: 13, recovery: 0.7, anim: 'run', charm: 1.5,
+  },
+  tideSlam: { // 레비아탄 — 해일 강타 (초광역 + 대넉백)
+    kind: 'slam', windup: 1.1, r: 5.2, dmg: 1.2, knock: 16, cd: 9, maxRange: 11,
+    recovery: 0.7, anim: 'attack',
+  },
+  goldSlam: { // 마몬 — 황금화 강타
+    kind: 'slam', windup: 1.0, r: 4.2, dmg: 1.1, knock: 6, cd: 10, maxRange: 10,
+    recovery: 0.6, anim: 'attack', charm: 1.2, gold: true,
+  },
+  swiftCombo: { // 루시퍼 — 신속 2연격 (짧은 윈드업, 회피 타이밍이 팍팍하다)
+    kind: 'melee', windup: 0.38, reach: 2.2, arc: 2.0, dmg: 0.9, knock: 5, cd: 2.6,
+    trigger: 1.6, anim: 'attack', second: { at: 0.28, dmg: 1.4, knock: 9 },
+  },
+};
+// 성별 보스 킷 — 기본/2페이즈(광폭화 시 교체). spec.moves/phase2Moves가 있으면 그쪽 우선
+export const BOSS_KITS = [
+  { moves: ['slash', 'slam'], phase2: ['slash', 'slam', 'charge'] },              // 벨제붑 — 소환+돌진 해금
+  { moves: ['slash', 'charmDash'], phase2: ['slash', 'charmDash', 'slam'] },      // 아스모데우스
+  { moves: ['slash', 'tideSlam'], phase2: ['slash', 'tideSlam', 'charge'] },      // 레비아탄
+  { moves: ['slash', 'goldSlam'], phase2: ['slash', 'goldSlam', 'charge'] },      // 마몬
+  { moves: ['swiftCombo', 'slam'], phase2: ['swiftCombo', 'slam', 'charge'] },    // 루시퍼
+];
+// ---- 성구(聖具) 장비 (스프린트4) — 정의는 불변, 저장은 ID+수량만 ----
+// stat: dmg(파티 가해 피해) / hp(최대 생명) / spd(이동 속도) / dcd(회피 쿨다운, 음수=감소)
+export const RELIC_SLOTS = [
+  { key: 'weapon', name: '무기', icon: '⚔' },
+  { key: 'armor', name: '방어구', icon: '🛡' },
+  { key: 'rosary', name: '묵주', icon: '📿' },
+];
+export const RELICS = {
+  // 표준 성구 — tier = 성 번호, 십부장 드랍
+  w1: { slot: 'weapon', tier: 1, name: '성수 뿌린 단검', icon: '🗡', stat: { dmg: 0.06 } },
+  a1: { slot: 'armor', tier: 1, name: '순례자의 로브', icon: '🧥', stat: { hp: 0.08 } },
+  r1: { slot: 'rosary', tier: 1, name: '나무 묵주', icon: '📿', stat: { dcd: -0.08 } },
+  w2: { slot: 'weapon', tier: 2, name: '은도금 세검', icon: '🗡', stat: { dmg: 0.10 } },
+  a2: { slot: 'armor', tier: 2, name: '수도회 사슬갑옷', icon: '🧥', stat: { hp: 0.13 } },
+  r2: { slot: 'rosary', tier: 2, name: '자개 묵주', icon: '📿', stat: { dcd: -0.12 } },
+  w3: { slot: 'weapon', tier: 3, name: '산호 심해창', icon: '🔱', stat: { dmg: 0.14 } },
+  a3: { slot: 'armor', tier: 3, name: '레비아탄 비늘 갑옷', icon: '🧥', stat: { hp: 0.18 } },
+  r3: { slot: 'rosary', tier: 3, name: '진주 묵주', icon: '📿', stat: { dcd: -0.16 } },
+  w4: { slot: 'weapon', tier: 4, name: '황금 십자검', icon: '⚔', stat: { dmg: 0.18 } },
+  a4: { slot: 'armor', tier: 4, name: '도금 흉갑', icon: '🛡', stat: { hp: 0.23 } },
+  r4: { slot: 'rosary', tier: 4, name: '호박 묵주', icon: '📿', stat: { dcd: -0.20 } },
+  w5: { slot: 'weapon', tier: 5, name: '첨탑의 성검', icon: '⚔', stat: { dmg: 0.22 } },
+  a5: { slot: 'armor', tier: 5, name: '대천사의 갑주', icon: '🛡', stat: { hp: 0.28 } },
+  r5: { slot: 'rosary', tier: 5, name: '흑요석 묵주', icon: '📿', stat: { dcd: -0.24 } },
+  // 보스 유니크 — 성 보스 처치 시 확정 드랍, 2스탯
+  u1: { slot: 'weapon', tier: 1, unique: true, name: '파리대왕의 침', icon: '🪰', stat: { dmg: 0.12, spd: 0.05 } },
+  u2: { slot: 'rosary', tier: 2, unique: true, name: '세이렌의 눈물', icon: '💧', stat: { dcd: -0.15, hp: 0.08 } },
+  u3: { slot: 'armor', tier: 3, unique: true, name: '심연의 등딱지', icon: '🐚', stat: { hp: 0.20, spd: 0.06 } },
+  u4: { slot: 'weapon', tier: 4, unique: true, name: '마몬의 저울추', icon: '⚖', stat: { dmg: 0.20, hp: 0.10 } },
+  u5: { slot: 'rosary', tier: 5, unique: true, name: '타락천사의 깃털', icon: '🪶', stat: { dcd: -0.25, spd: 0.10 } },
+};
+export const BOSS_RELICS = ['u1', 'u2', 'u3', 'u4', 'u5']; // 성 인덱스 → 유니크
+
+// ---- 층 레이아웃 (스프린트3) — 축정렬 벽 {x,z,w,d} 중심+폭. 이동/시선/투사체 모두 막는다 ----
+export const LAYOUTS = {
+  pillars: [ // 기둥 홀 — 엄폐하며 접근
+    { x: -8, z: -8, w: 2.4, d: 2.4 }, { x: 8, z: -8, w: 2.4, d: 2.4 },
+    { x: -8, z: 4, w: 2.4, d: 2.4 }, { x: 8, z: 4, w: 2.4, d: 2.4 },
+    { x: 0, z: -2, w: 2.8, d: 2.8 },
+  ],
+  cross: [ // 십자 회랑 — 중앙 교차로 쟁탈
+    { x: -11, z: -3, w: 9, d: 1.3 }, { x: 11, z: -3, w: 9, d: 1.3 },
+    { x: 0, z: -13, w: 1.3, d: 7 }, { x: 0, z: 8, w: 1.3, d: 7 },
+  ],
+  rooms: [ // 복도와 방 — 어둠 층: 모퉁이 너머가 안 보인다
+    { x: -6, z: -9, w: 1.3, d: 13 }, { x: 6, z: -9, w: 1.3, d: 13 },
+    { x: -12, z: -2, w: 8, d: 1.3 }, { x: 12, z: -2, w: 8, d: 1.3 },
+  ],
+  ruins: [ // 무너진 벽 — 불규칙 엄폐
+    { x: -9, z: -11, w: 6, d: 1.3 }, { x: 8, z: -6, w: 1.3, d: 6 },
+    { x: -4, z: 2, w: 7, d: 1.3 }, { x: 9, z: 7, w: 5, d: 1.3 },
+    { x: -11, z: 9, w: 1.3, d: 5 },
+  ],
+};
+// 층별 결정론 배정 — F.layout이 있으면 우선. 도입층(1)/보스층(10)은 개방 아레나 유지
+export function layoutFor(idx) {
+  const f = idx % 10;
+  if (f === 0 || f === 9) return null;
+  if (f === 4) return LAYOUTS.rooms;          // 어둠 층(5층)은 방 구조
+  return [LAYOUTS.pillars, LAYOUTS.ruins, LAYOUTS.cross][f % 3];
+}
+
+// 무브셋 기본 배정 — spec.moves가 있으면 그것을 쓰고, 없으면 체급으로 유도
+export function defaultMoves(spec) {
+  if (spec.moves) return spec.moves;
+  if (spec.boss) return ['slash', 'slam'];
+  if (spec.decurion && (spec.kind === 'melee' || !spec.kind)) {
+    return (spec.scale || 1) >= 1.5 ? ['slash', 'slam', 'charge'] : ['slash', 'combo', 'charge'];
+  }
+  return ['slash'];
+}
 
 // ---- 성(城) 메타 — 엔딩/성물/다음 성 안내는 여기서 ----
 export const CASTLES = [

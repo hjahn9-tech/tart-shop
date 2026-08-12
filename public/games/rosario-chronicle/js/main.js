@@ -4,8 +4,9 @@
 // 스킬 해금 · WebAudio 사운드 · MMO HUD
 // ============================================================
 import * as THREE from 'three';
-import { CHARACTERS, FLOORS, LEVEL_XP, MAX_LEVEL, CASTLES, UPGRADES, CYCLE } from './data.js';
+import { CHARACTERS, FLOORS, LEVEL_XP, MAX_LEVEL, CASTLES, UPGRADES, CYCLE, CASTLE_DMG, MOVES, defaultMoves, layoutFor, RELICS, RELIC_SLOTS, BOSS_RELICS, BOSS_KITS } from './data.js';
 import { loadAll, spawnModel, makeAnimator } from './assets.js';
+import { createFog } from './fog.js';
 import { initAudio, sfx, setNight } from './audio.js';
 import * as ui from './ui.js';
 import * as net from './net.js';
@@ -25,13 +26,15 @@ const $ = (id) => document.getElementById(id);
 
 // ---------- 렌더러 / 씬 ----------
 const renderer = new THREE.WebGLRenderer({ canvas: $('game'), antialias: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+const IS_TOUCH = matchMedia('(pointer: coarse)').matches; // 모바일 품질 티어 (스프린트5)
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, IS_TOUCH ? 1.25 : 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.65;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 400);
+const fog = createFog(scene, IS_TOUCH ? 96 : 144); // 어둠 층 fog of war — 모바일은 레이 예산 축소
 function resize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -46,7 +49,7 @@ scene.add(hemi);
 scene.add(new THREE.AmbientLight(0x6a6a78, 0.9)); // 최소 밝기 보장 (밤에도 또렷하게)
 const sun = new THREE.DirectionalLight(0xffe8c0, 1.0);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(IS_TOUCH ? 1024 : 2048, IS_TOUCH ? 1024 : 2048);
 sun.shadow.camera.left = -30; sun.shadow.camera.right = 30;
 sun.shadow.camera.top = 30; sun.shadow.camera.bottom = -30;
 sun.shadow.camera.far = 150;
@@ -146,11 +149,20 @@ function flash(group, hex) {
   });
 }
 function box(w, h, d, c) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(c)); m.castShadow = true; m.receiveShadow = true; return m; }
+// 스프라이트 풀 (스프린트5) — 이펙트/투사체가 잦은 GC를 만들지 않게 재사용.
+// 영구 사용처(성령·엔진 등)는 반납하지 않아도 무방 — 만료 경로만 freeSprite를 부른다.
+const spritePool = [];
 function glowSprite(color, size) {
-  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOW, color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  let s = spritePool.pop();
+  if (!s) {
+    s = new THREE.Sprite(new THREE.SpriteMaterial({ map: GLOW, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  }
+  s.material.color.setHex(color);
+  s.material.opacity = 1;
   s.scale.setScalar(size);
   return s;
 }
+function freeSprite(s) { if (s.isSprite) spritePool.push(s); }
 
 // ---------- 상태 ----------
 const game = {
@@ -162,34 +174,48 @@ const game = {
   shieldT: 0, guardT: 0, tauntT: 0,
   wind: null, boss: null, floorGroup: null, spirit: null, target: null,
   keys: {}, player2: null,
+  hitstopT: 0, shakeT: 0, shakeAmp: 0, telegraphs: [],
+  walls: [], wallMeshes: [],
   camDist: 15, camYaw: 0,
   dayT: DAY_LEN * 0.16, night: false,
   cycle: 1, blessings: 0,
   upgrades: { water: 0, life: 0, cross: 0, step: 0, spirit: 0 },
+  relics: {}, equip: { weapon: null, armor: null, rosary: null }, // 성구 (스프린트4)
+  touchInput: { ix: 0, iz: 0, skillPulse: [false, false, false, false], dodgePulse: false }, // 터치 (스프린트5)
 };
 
 // ---- 축복 강화 / 회차 — localStorage 영구 저장 ----
 const UP_MAP = Object.fromEntries(UPGRADES.map((u) => [u.key, u]));
 const upM = (key) => 1 + game.upgrades[key] * UP_MAP[key].per;
+function saveData() { // 세이브 v2 — relics/equip 추가 (v1 로드는 migrateSave가 기본값 보강)
+  return {
+    saveV: 2, upgrades: game.upgrades, blessings: game.blessings, cycle: game.cycle,
+    relics: game.relics, equip: game.equip,
+  };
+}
+function migrateSave(s) { // v1(성구 없음) → v2. 미확인 장비 ID는 방어적으로 해제
+  Object.assign(game.upgrades, s.upgrades || {});
+  game.blessings = s.blessings ?? game.blessings;
+  game.cycle = s.cycle ?? game.cycle;
+  game.relics = s.relics || {};
+  const eq = s.equip || {};
+  for (const { key } of RELIC_SLOTS) {
+    const r = RELICS[eq[key]];
+    game.equip[key] = r && r.slot === key && game.relics[eq[key]] > 0 ? eq[key] : null;
+  }
+}
 function saveProgress() {
-  try {
-    localStorage.setItem('rosario_save', JSON.stringify({
-      upgrades: game.upgrades, blessings: game.blessings, cycle: game.cycle,
-    }));
-  } catch (e) { /* 시크릿 모드 등 */ }
+  try { localStorage.setItem('rosario_save', JSON.stringify(saveData())); } catch (e) { /* 시크릿 모드 등 */ }
   saveProgressServer();
 }
 function saveProgressServer() {
-  if (net.state.connected && game.acctName) {
-    net.send({ t: 'save', data: { upgrades: game.upgrades, blessings: game.blessings, cycle: game.cycle } });
-  }
+  if (net.state.connected && game.acctName) net.send({ t: 'save', data: saveData() });
 }
 function onServerSave(data) { // 계정 저장 데이터 수신 (접속 시 1회)
   if (data) {
-    Object.assign(game.upgrades, data.upgrades || {});
-    game.blessings = data.blessings ?? game.blessings;
-    game.cycle = data.cycle ?? game.cycle;
-    try { localStorage.setItem('rosario_save', JSON.stringify(data)); } catch (e) { /* */ }
+    migrateSave(data);
+    applyRelicStats();
+    try { localStorage.setItem('rosario_save', JSON.stringify(saveData())); } catch (e) { /* */ }
     refreshUpgradePanel();
     $('coop-status').textContent += ` · [${game.acctName}] 계정 불러옴 ✓`;
   } else {
@@ -199,12 +225,44 @@ function onServerSave(data) { // 계정 저장 데이터 수신 (접속 시 1회
 function loadProgress() {
   try {
     const s = JSON.parse(localStorage.getItem('rosario_save'));
-    if (s) {
-      Object.assign(game.upgrades, s.upgrades || {});
-      game.blessings = s.blessings || 0;
-      game.cycle = s.cycle || 1;
-    }
+    if (s) migrateSave(s);
   } catch (e) { /* 무시 */ }
+}
+
+// ---- 성구 장비 (스프린트4) — 정의는 RELICS(ID 참조), 이전은 원자적 커밋 ----
+const relicM = (stat) => {
+  let m = 1;
+  for (const { key } of RELIC_SLOTS) {
+    const r = RELICS[game.equip[key]];
+    if (r && r.stat[stat]) m += r.stat[stat];
+  }
+  return m;
+};
+function applyRelicStats() { // 생명은 재계산 필요 (축복 life와 동일 패턴)
+  for (const u of game.party) {
+    u.maxhp = Math.round(u.baseMax * upM('life') * relicM('hp'));
+    u.hp = Math.min(u.hp, u.maxhp);
+  }
+}
+function grantRelic(id) {
+  const def = RELICS[id];
+  if (!def) return;
+  game.relics[id] = (game.relics[id] || 0) + 1; // 단일 변이 → 즉시 저장 (손실 경계 없음)
+  coopToast('성구 획득!', `${def.icon} ${def.name}`);
+  coopLog(`${def.icon} ${def.name} 획득 — I 키로 성물함`, 'gold');
+  sfx.unlock();
+  saveProgress();
+  refreshRelicPanel();
+}
+function equipRelic(id) { // 트랜잭션: 소유 검증 → 슬롯 교체 1회 커밋 → 저장. 기존 장비는 소유 목록에 그대로
+  const def = RELICS[id];
+  if (!def || !(game.relics[id] > 0)) return false;
+  game.equip[def.slot] = game.equip[def.slot] === id ? null : id; // 재클릭 = 해제
+  applyRelicStats();
+  sfx.select();
+  saveProgress();
+  refreshRelicPanel();
+  return true;
 }
 
 // ---- 축복의 제단 UI ----
@@ -237,7 +295,7 @@ function buyUpgrade(key) {
   if (rank >= up.max || game.blessings < cost) return;
   game.blessings -= cost;
   game.upgrades[key]++;
-  if (key === 'life') for (const u of game.party) u.maxhp = Math.round(u.baseMax * upM('life'));
+  if (key === 'life') applyRelicStats(); // 생명 재계산 (축복 + 성구 통합)
   sfx.unlock();
   coopLog(`✚ ${up.name} ${game.upgrades[key]}단계 — ${up.desc}`, 'gold');
   saveProgress();
@@ -248,8 +306,48 @@ function toggleUpgradePanel() {
   panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
   refreshUpgradePanel();
 }
+
+// ---- 성물함 UI ----
+const STAT_LABEL = { dmg: '피해', hp: '생명', spd: '이속', dcd: '회피쿨' };
+function refreshRelicPanel() {
+  const panel = $('relic-panel');
+  if (!panel || panel.style.display !== 'block') return;
+  $('relic-slots').innerHTML = RELIC_SLOTS.map((s) => {
+    const r = RELICS[game.equip[s.key]];
+    return `<div class="relic-slot"><b>${s.icon} ${s.name}</b><span>${r ? `${r.icon} ${r.name}` : '—'}</span></div>`;
+  }).join('');
+  const rows = $('relic-rows');
+  rows.innerHTML = '';
+  const owned = Object.entries(game.relics).filter(([id, n]) => n > 0 && RELICS[id]);
+  if (!owned.length) {
+    rows.innerHTML = '<div class="up-sub">아직 성구가 없다 — 십부장을 처치하면 얻는다</div>';
+    return;
+  }
+  owned.sort(([a], [b]) => RELICS[a].tier - RELICS[b].tier);
+  for (const [id, n] of owned) {
+    const r = RELICS[id];
+    const eq = game.equip[r.slot] === id;
+    const statTxt = Object.entries(r.stat)
+      .map(([k, v]) => `${STAT_LABEL[k]} ${v > 0 ? '+' : ''}${Math.round(v * 100)}%`).join(' · ');
+    const row = document.createElement('div');
+    row.className = 'up-row';
+    row.innerHTML = `<span class="up-icon">${r.icon}</span>
+      <span class="up-name">${r.name}${n > 1 ? ` ×${n}` : ''} <em>${r.unique ? '유니크' : '★'.repeat(r.tier)}</em></span>
+      <span class="up-desc">${statTxt}</span>
+      <button class="up-buy ${eq ? 'equipped' : ''}">${eq ? '장착됨' : '장착'}</button>`;
+    row.querySelector('.up-buy').addEventListener('click', () => equipRelic(id));
+    rows.appendChild(row);
+  }
+}
+function toggleRelicPanel() {
+  const panel = $('relic-panel');
+  panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
+  refreshRelicPanel();
+}
+
 window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyC' && (game.state === 'play' || game.state === 'ending')) toggleUpgradePanel();
+  if (e.code === 'KeyI' && (game.state === 'play' || game.state === 'ending')) toggleRelicPanel();
   if (e.code === 'KeyP' && game.state === 'play') toggleP2();
 });
 
@@ -297,6 +395,121 @@ function clampArena(p) {
 }
 function after(t, fn) { game.pending.push({ t, fn }); }
 
+// ---------- 벽 (스프린트3) — 이동·시선·투사체를 모두 막는 축정렬 사각 ----------
+function collideWalls(p, r) { // 축별 밀어내기 → 벽면 슬라이딩
+  for (const w of game.walls) {
+    const dx = p.x - w.x, dz = p.z - w.z;
+    const px = w.w / 2 + r - Math.abs(dx), pz = w.d / 2 + r - Math.abs(dz);
+    if (px <= 0 || pz <= 0) continue;
+    if (px < pz) p.x += dx >= 0 ? px : -px;
+    else p.z += dz >= 0 ? pz : -pz;
+  }
+}
+function pointInWall(x, z, pad = 0) {
+  for (const w of game.walls) {
+    if (Math.abs(x - w.x) < w.w / 2 + pad && Math.abs(z - w.z) < w.d / 2 + pad) return w;
+  }
+  return null;
+}
+function segRectT(x0, z0, dx, dz, w) { // 슬랩 교차 — 진입 t(0~1) 또는 null
+  let t0 = 0, t1 = 1;
+  for (const [p0, dp, c, half] of [[x0, dx, w.x, w.w / 2], [z0, dz, w.z, w.d / 2]]) {
+    if (Math.abs(dp) < 1e-9) { if (Math.abs(p0 - c) > half) return null; }
+    else {
+      let ta = (c - half - p0) / dp, tb = (c + half - p0) / dp;
+      if (ta > tb) { const tmp = ta; ta = tb; tb = tmp; }
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+      if (t0 > t1) return null;
+    }
+  }
+  return t0;
+}
+function sightBlocked(x0, z0, x1, z1) { // 시선 판정 — AI·타겟팅·fog가 같은 진실을 쓴다
+  const dx = x1 - x0, dz = z1 - z0;
+  for (const w of game.walls) if (segRectT(x0, z0, dx, dz, w) !== null) return true;
+  return false;
+}
+function castWallRay(x, z, dirX, dirZ, maxDist) { // fog 각도 룩업 — 가장 가까운 벽까지 거리
+  let best = maxDist;
+  const dx = dirX * maxDist, dz = dirZ * maxDist;
+  for (const w of game.walls) {
+    const t = segRectT(x, z, dx, dz, w);
+    if (t !== null && t * maxDist < best) best = t * maxDist;
+  }
+  return best;
+}
+
+// ---------- 전투 체감 (스프린트1) ----------
+// 모든 전투 동작의 타이밍을 한 곳에 명시한다: startup / active(무적·접촉) / recovery
+const FEEL = {
+  dodge: { startup: 0.04, iframeEnd: 0.34, total: 0.46, dist: 5.2, cd: 2.6 }, // 쿨 2.6s — 아껴 쓰는 자원 (스프린트6, 묵주 성구가 유의미해짐)
+  telegraph: { windup: 0.55, flash: 0.15 },  // windup 끝 = 접촉 판정 시점
+  hitstop: { hit: 0.05, hurt: 0.07, kill: 0.12, scale: 0.12 },
+};
+function addHitstop(d) { game.hitstopT = Math.max(game.hitstopT, d); }
+function shake(amp, dur = 0.3) { game.shakeAmp = Math.max(game.shakeAmp, amp); game.shakeT = Math.max(game.shakeT, dur); }
+function knock(e, fromPos, pow) { // 피격자 넉백 임펄스 (Enemy.update에서 감쇠 적용)
+  const d = e.pos.clone().sub(fromPos); d.y = 0;
+  if (d.lengthSq() < 0.01) return;
+  e.kbV = (e.kbV || new THREE.Vector3()).add(d.normalize().multiplyScalar(pow));
+}
+// 타격 스파크 — burstEffect보다 알갱이가 튀는 임팩트
+function impactEffect(pos, color, n = 5) {
+  for (let i = 0; i < n; i++) {
+    const s = glowSprite(color, 0.35 + Math.random() * 0.3);
+    s.position.copy(pos); s.position.y = 1.1;
+    const a = Math.random() * Math.PI * 2;
+    game.floorGroup.add(s);
+    game.effects.push({
+      mesh: s, t: 0, dur: 0.22 + Math.random() * 0.14, grow: -1.5,
+      vel: new THREE.Vector3(Math.cos(a) * 7, 3 + Math.random() * 4, Math.sin(a) * 7),
+    });
+  }
+}
+// 공격 텔레그래프 — 부채꼴(근접)/직선(돌진)/링(강타). 적 mesh에 붙이면 위치·방향 자동 추종.
+function telegraphMat() {
+  return new THREE.MeshBasicMaterial({
+    color: 0xff5533, transparent: true, opacity: 0.0, side: THREE.DoubleSide, depthWrite: false,
+  });
+}
+function pushTelegraph(mesh, owner, dur, world) {
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = world ? 0.14 : 0.14;
+  if (world) game.floorGroup.add(mesh); else owner.mesh.add(mesh);
+  game.telegraphs.push({ mesh, owner, t: 0, dur, world });
+  sfx.warn();
+}
+// 주의: rotation.x=-π/2 평면에서 로컬 +Z(전방)는 평면 -Y에 대응한다
+function telegraphEffect(enemy, r, dur, arc = 1.8) { // 전방 부채꼴 (기본 ~103°)
+  const m = new THREE.Mesh(new THREE.CircleGeometry(r, 20, -Math.PI / 2 - arc / 2, arc), telegraphMat());
+  pushTelegraph(m, enemy, dur, false);
+}
+function telegraphLine(enemy, len, width, dur) { // 전방 직선 (돌진 경로)
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(width, len), telegraphMat());
+  m.geometry.translate(0, -len / 2, 0); // 발밑에서 전방으로 뻗음
+  pushTelegraph(m, enemy, dur, false);
+}
+function telegraphRing(pos, r, dur, owner) { // 지정 지점 원 (착지 AoE)
+  const m = new THREE.Mesh(new THREE.CircleGeometry(r, 24), telegraphMat());
+  m.position.set(pos.x, 0, pos.z);
+  pushTelegraph(m, owner, dur, true);
+}
+function updateTelegraphs(dt) {
+  for (let i = game.telegraphs.length - 1; i >= 0; i--) {
+    const tg = game.telegraphs[i];
+    tg.t += dt;
+    const k = tg.t / tg.dur;
+    const flashing = tg.dur - tg.t < FEEL.telegraph.flash;
+    tg.mesh.material.opacity = flashing ? (Math.floor(tg.t * 30) % 2 ? 0.8 : 0.35) : 0.2 + k * 0.3;
+    tg.mesh.material.color.setHex(flashing ? 0xff2211 : 0xff5533);
+    if (k >= 1 || (tg.owner && tg.owner.hp <= 0)) {
+      (tg.world ? game.floorGroup : tg.owner.mesh).remove(tg.mesh);
+      game.telegraphs.splice(i, 1);
+    }
+  }
+}
+
 // ---------- 파티 유닛 ----------
 let plateSeq = 0;
 class Unit {
@@ -325,6 +538,11 @@ class Unit {
     this.charmT = 0;
     this.faceDir = new THREE.Vector3(0, 0, -1);
     this.p2 = false;
+    this.dodgeT = 0;       // 롤 잔여 시간 (total → 0)
+    this.dodgeCd = 0;
+    this.dodgeFxT = 0;     // "회피!" 표시 스로틀 (도트 프레임 스팸 방지)
+    this.charmResistT = 0; // 재매혹 내성
+    this.dodgeDir = new THREE.Vector3(0, 0, -1);
     this.dashT = 0;
     this.dashDir = new THREE.Vector3();
     this.dashHit = new Set();
@@ -333,8 +551,22 @@ class Unit {
   }
   get pos() { return this.mesh.position; }
   face(dir) { this.mesh.rotation.y = Math.atan2(dir.x, dir.z); }
+  iframes() { // 롤 무적 창: 경과 시간이 [startup, iframeEnd] 안일 때
+    const el = FEEL.dodge.total - this.dodgeT;
+    return this.dodgeT > 0 && el >= FEEL.dodge.startup && el <= FEEL.dodge.iframeEnd;
+  }
   damage(n) {
     if (!this.alive || game.shieldT > 0) return;
+    if (this.iframes()) { // 권위적 회피 판정 — 시각 연출이 아니라 여기서 결정된다
+      if (!(this.dodgeFxT > 0)) { // 도트류가 프레임마다 불러도 표시는 0.35s에 1회
+        this.dodgeFxT = 0.35;
+        const s = toScreen(this.pos, 2.1);
+        if (s.front) ui.damageNumber(s.x, s.y, '회피!', 'dodge');
+        netFx({ k: 'dmg', x: +this.pos.x.toFixed(1), z: +this.pos.z.toFixed(1), h: 2.1, v: '회피!', cls: 'dodge' });
+        if (this.isPlayer) sfx.perfect();
+      }
+      return;
+    }
     if (game.guardT > 0) n *= 0.5;
     this.hp -= n;
     const s = toScreen(this.pos, 2.1);
@@ -377,7 +609,7 @@ class Enemy {
     const cm = game.cycle - 1; // 회차 배율
     this.maxhp = Math.round(spec.hp * (1 + CYCLE.hp * cm));
     this.hp = this.maxhp;
-    this.atk = spec.dmg * (1 + CYCLE.dmg * cm);
+    this.atk = spec.dmg * (1 + CYCLE.dmg * cm) * (CASTLE_DMG[Math.floor((game.floorIdx || 0) / 10)] || 1);
     this.expVal = Math.round((spec.exp || 0) * (1 + CYCLE.exp * cm));
     this.speed = spec.speed;
     this.scale = spec.scale || 1;
@@ -398,7 +630,11 @@ class Enemy {
     this.home = new THREE.Vector3(x, 0, z);
     this.wanderTo = null;
     this.wanderT = Math.random() * 3;
-    this.atkT = 0;
+    this.atkT = 0;                       // 무브 간 공통 게이트 (연속 시전 방지)
+    this.kit = spec.boss ? BOSS_KITS[Math.floor((game.floorIdx || 0) / 10)] : null; // 성별 보스 킷
+    this.moves = spec.moves || (this.kit ? this.kit.moves : defaultMoves(spec));
+    this.moveCd = {};                    // 무브별 쿨다운 (런타임)
+    this.move = null;                    // 진행 중 무브 상태기
     this.shootT = 2 + Math.random() * 2;
     this.summonT = spec.boss ? 6 : 0;
     this.stunT = 0;
@@ -440,15 +676,28 @@ class Enemy {
     }
   }
   update(dt) {
-    if (this.stunT > 0) { this.stunT -= dt; this.anim.base(false); return; }
+    if (this.kbV && this.kbV.lengthSq() > 0.02) { // 넉백 감쇠
+      this.pos.addScaledVector(this.kbV, dt);
+      clampArena(this.pos);
+      collideWalls(this.pos, 0.7);
+      this.kbV.multiplyScalar(Math.max(0, 1 - 9 * dt));
+    }
+    if (this.stunT > 0) {
+      this.stunT -= dt;
+      if (this.move) this.move = null; // 경직 = 무브 중단 (인터럽트 규칙)
+      this.anim.base(false);
+      return;
+    }
+    for (const k in this.moveCd) this.moveCd[k] = Math.max(0, this.moveCd[k] - dt);
     const spec = this.spec;
     const t = this.nearestParty();
     if (!t) { this.anim.base(false); return; }
     const dToParty = this.pos.distanceTo(t.pos);
+    if (this.move) { this.updateMove(dt); return; } // 진행 중 무브가 이동·판정을 소유
 
     // ---- 시야: 배회 상태 ----
     if (this.state === 'idle') {
-      if (dToParty < this.sight) { this.aggro(); }
+      if (dToParty < this.sight && !sightBlocked(this.pos.x, this.pos.z, t.pos.x, t.pos.z)) { this.aggro(); }
       else {
         this.wanderT -= dt;
         if (this.wanderT <= 0) {
@@ -463,6 +712,7 @@ class Enemy {
           if (d.length() > 0.4) {
             d.normalize();
             this.pos.addScaledVector(d, this.speed * 0.35 * dt);
+            collideWalls(this.pos, 0.7);
             this.face(d);
             moving = true;
           } else this.wanderTo = null;
@@ -480,29 +730,25 @@ class Enemy {
     if (dToParty > keepDist) {
       this.pos.addScaledVector(dir, this.speed * dt);
       clampArena(this.pos);
+      collideWalls(this.pos, 0.7);
       moving = true;
     }
     this.anim.base(moving);
 
     this.atkT -= dt;
-    if (dToParty < this.radius + 1.2 && this.atkT <= 0) {
-      this.atkT = 1.4;
-      this.anim.play('attack', { once: true });
-      after(0.4, () => {
-        if (this.hp > 0 && t.alive && this.pos.distanceTo(t.pos) < this.radius + 1.7) {
-          t.damage(this.atk);
-          sfx.hit();
-          if (spec.leech) { // 흡혈 — 입힌 피해만큼 회복 (제4성)
-            this.hp = Math.min(this.maxhp, this.hp + this.atk * spec.leech);
-            burstEffect(this.pos, 0x9aff66, 1.3);
-          }
-        }
-      });
+    if (this.atkT <= 0) {
+      const id = this.pickMove(dToParty);
+      if (id) this.startMove(id, t);
     }
     if (spec.kind === 'ranged' || spec.boss) {
       this.shootT -= dt;
-      if (this.shootT <= 0 && dToParty < 20) {
+      if (this.shootT <= 0 && dToParty < 20 && !sightBlocked(this.pos.x, this.pos.z, t.pos.x, t.pos.z)) {
         this.anim.play('shoot', { once: true });
+        sfx.warn(); // 발사 예고 — 0.35s 후 발사
+        const g = glowSprite(spec.boss ? 0x9a4adf : 0xd05050, 1.1);
+        g.position.copy(this.pos); g.position.y = 1.4;
+        game.floorGroup.add(g);
+        game.effects.push({ mesh: g, t: 0, dur: 0.35, grow: 1.2 });
         if (spec.boss) {
           this.shootT = this.enraged ? spec.enrageShootCd : spec.shootCd;
           after(0.35, () => {
@@ -521,10 +767,11 @@ class Enemy {
     // 매혹 시전 (kind 'charm')
     if (spec.kind === 'charm') {
       this.charmCdT = (this.charmCdT ?? 2 + Math.random() * 3) - dt;
-      if (this.charmCdT <= 0 && dToParty < 11) {
+      if (this.charmCdT <= 0 && dToParty < 11 && !sightBlocked(this.pos.x, this.pos.z, t.pos.x, t.pos.z)) {
         this.charmCdT = 6.5;
         this.anim.play('cast', { once: true });
-        after(0.4, () => { if (this.hp > 0 && t.alive) applyCharm(t, 2, spec.gold); });
+        telegraphEffect(this, 2.0, 0.55, Math.PI * 2); // 시전 예고 링 — 이 안에 회피 타이밍을 맞추면 무효
+        after(0.55, () => { if (this.hp > 0 && t.alive) applyCharm(t, 2, spec.gold); });
       }
     }
     if (spec.boss) {
@@ -534,7 +781,8 @@ class Enemy {
         if (this.charmWaveT <= 0) {
           this.charmWaveT = spec.charm.cd;
           this.anim.play('cast', { once: true });
-          after(0.4, () => {
+          telegraphEffect(this, 2.6, 0.55, Math.PI * 2); // 보스 매혹 파동 예고
+          after(0.55, () => {
             if (this.hp <= 0) return;
             const alive = game.party.filter((u) => u.alive);
             if (alive.length) applyCharm(alive[Math.floor(Math.random() * alive.length)], spec.charm.dur, spec.charm.gold);
@@ -558,6 +806,8 @@ class Enemy {
       if (!this.enraged && this.hp < this.maxhp * 0.5) {
         this.enraged = true;
         this.speed *= 1.35;
+        this.moves = spec.phase2Moves || (this.kit && this.kit.phase2) || [...new Set([...this.moves, 'charge'])]; // 2페이즈 무브셋 교체
+        for (const k in this.moveCd) this.moveCd[k] *= 0.5;
         if (spec.phase2Heal) { // 2페이즈 (루시퍼)
           this.hp = Math.min(this.maxhp, this.hp + this.maxhp * spec.phase2Heal);
           coopFlash();
@@ -576,8 +826,128 @@ class Enemy {
       }
     }
   }
+  // ---- 무브 상태기 (스프린트2) — 콘텐츠는 MOVES, 여기엔 런타임만 ----
+  pickMove(d) { // 배열 뒤쪽(특수기) 우선 — 적법(사거리+쿨다운)한 첫 무브
+    for (let i = this.moves.length - 1; i >= 0; i--) {
+      const id = this.moves[i], mv = MOVES[id];
+      if (!mv || (this.moveCd[id] || 0) > 0) continue;
+      if (mv.kind === 'melee' && d > this.radius + mv.trigger) continue;
+      if (mv.kind === 'charge' && (d < mv.minRange || d > mv.maxRange)) continue;
+      if (mv.kind === 'slam' && d > mv.maxRange) continue;
+      return id;
+    }
+    return null;
+  }
+  startMove(id, target) {
+    const mv = MOVES[id];
+    this.move = { id, mv, t: 0, phase: 'windup', hits: new Set(), target };
+    this.moveCd[id] = mv.cd;
+    this.anim.play(mv.anim, { once: true });
+    if (mv.kind === 'melee') {
+      telegraphEffect(this, this.radius + mv.reach, mv.windup, mv.arc);
+    } else if (mv.kind === 'charge') {
+      const d = target.pos.clone().sub(this.pos); d.y = 0; d.normalize();
+      this.move.dir = d;
+      this.face(d); // 방향은 여기서 고정 — 윈드업 중 옆으로 비키면 빗나간다
+      telegraphLine(this, mv.speed * mv.dur, mv.width + this.radius, mv.windup);
+    } else if (mv.kind === 'slam') {
+      this.move.dest = target.pos.clone(); this.move.dest.y = 0;
+      this.move.from = this.pos.clone();
+      this.move.aoeR = mv.r + this.radius * 0.5;
+      telegraphRing(this.move.dest, this.move.aoeR, mv.windup, this); // 착지점 고정
+    }
+  }
+  hitUnit(u, mul, kn, dirVec, mv) { // 접촉 1회 적용 — 피해가 실제로 들어간 경우만 임팩트
+    u.damage(this.atk * mul);
+    if (u.iframes() || game.shieldT > 0) return false;
+    sfx.hit(); sfx.impact();
+    addHitstop(FEEL.hitstop.hurt);
+    if (u.isPlayer) shake(0.32, 0.24);
+    impactEffect(u.pos, 0xff8866);
+    u.vel.addScaledVector(dirVec, kn);
+    if (mv && mv.charm && u.alive) applyCharm(u, mv.charm, mv.gold); // 시그니처 접촉 매혹 (내성 게이트는 applyCharm 소유)
+    return true;
+  }
+  resolveMeleeHit(mul, kn) { // 접촉 판정 (권위적): 생존 + 사거리 + 전방각(부채꼴과 동일)
+    const t = this.move.target, mv = this.move.mv;
+    if (this.hp <= 0 || !t.alive) return;
+    const reach = this.radius + mv.reach;
+    const to = t.pos.clone().sub(this.pos); to.y = 0;
+    if (to.length() >= reach) return;
+    to.normalize();
+    const fwd = new THREE.Vector3(Math.sin(this.mesh.rotation.y), 0, Math.cos(this.mesh.rotation.y));
+    if (fwd.dot(to) < Math.cos(mv.arc / 2)) return;
+    if (this.hitUnit(t, mul, kn, fwd, mv) && this.spec.leech) { // 흡혈 (제4성)
+      this.hp = Math.min(this.maxhp, this.hp + this.atk * mul * this.spec.leech);
+      burstEffect(this.pos, 0x9aff66, 1.3);
+    }
+  }
+  updateMove(dt) {
+    const m = this.move, mv = m.mv;
+    m.t += dt;
+    if (m.phase === 'windup') {
+      if (mv.kind === 'melee' && m.target.alive) { // 근접만 윈드업 중 대상 추적 회전
+        const d = m.target.pos.clone().sub(this.pos); d.y = 0;
+        if (d.lengthSq() > 0.01) this.face(d.normalize());
+      }
+      if (m.t >= mv.windup) {
+        m.t = 0;
+        if (mv.kind === 'melee') {
+          this.resolveMeleeHit(mv.dmg, mv.knock);
+          if (mv.second) { // 2연격 — 두 번째 타도 같은 텔레그래프 계약
+            m.phase = 'second';
+            telegraphEffect(this, this.radius + mv.reach, mv.second.at, mv.arc);
+            this.anim.play(mv.anim, { once: true });
+          } else m.phase = 'recovery';
+        } else m.phase = 'active';
+      }
+    } else if (m.phase === 'second') {
+      if (m.t >= mv.second.at) {
+        m.t = 0;
+        this.resolveMeleeHit(mv.second.dmg, mv.second.knock);
+        m.phase = 'recovery';
+      }
+    } else if (m.phase === 'active') {
+      if (mv.kind === 'charge') { // 질주 — 경로상 접촉, 대상당 1회
+        this.pos.addScaledVector(m.dir, mv.speed * dt);
+        clampArena(this.pos);
+        if (pointInWall(this.pos.x, this.pos.z, this.radius * 0.4)) { // 벽에 쾅 — 돌진 중단
+          collideWalls(this.pos, 0.7);
+          m.t = 0; m.phase = 'recovery';
+          shake(0.3, 0.2); sfx.impact();
+          impactEffect(this.pos, 0xccccff, 4);
+        }
+        for (const u of game.party) {
+          if (u.alive && !m.hits.has(u) && this.pos.distanceTo(u.pos) < mv.width * 0.5 + this.radius + 0.6) {
+            m.hits.add(u);
+            this.hitUnit(u, mv.dmg, mv.knock, m.dir, mv);
+          }
+        }
+        if (m.t >= mv.dur) { m.t = 0; m.phase = 'recovery'; }
+      } else { // slam — 0.28s 포물선 도약 후 착지 AoE
+        const k = Math.min(1, m.t / 0.28);
+        this.pos.lerpVectors(m.from, m.dest, k);
+        this.pos.y = Math.sin(k * Math.PI) * 2.2;
+        if (k >= 1) {
+          this.pos.y = 0;
+          m.t = 0; m.phase = 'recovery';
+          ringEffect(this.pos, m.aoeR, 0xff7744);
+          shake(0.5, 0.3); sfx.eruption();
+          for (const u of game.party) {
+            if (!u.alive || this.pos.distanceTo(u.pos) >= m.aoeR + 0.4) continue;
+            const kd = u.pos.clone().sub(this.pos).setY(0);
+            this.hitUnit(u, mv.dmg, mv.knock, kd.lengthSq() > 0.01 ? kd.normalize() : new THREE.Vector3(0, 0, 1), mv);
+          }
+        }
+      }
+    } else if (m.phase === 'recovery') {
+      this.anim.base(false);
+      if (m.t >= (mv.recovery ?? 0.3)) { this.move = null; this.atkT = 0.4; }
+    }
+  }
   damage(n, byPlayer = true) {
     if (this.hp <= 0) return;
+    n *= relicM('dmg'); // 성구 무기 보정 — 파티 가해 피해의 단일 관문
     this.hp -= n;
     this.aggro();
     const s = toScreen(this.pos, 2.0 * this.scale);
@@ -590,7 +960,12 @@ class Enemy {
     game.enemies.splice(game.enemies.indexOf(this), 1);
     if (game.target === this) game.target = null;
     this.anim.play('death', { once: true });
+    this.mesh.visible = true; // 은닉 중 사망해도 시체는 보인다
     game.corpses.push({ mesh: this.mesh, anim: this.anim, t: this.spec.boss ? 999 : 1.5 });
+    addHitstop(FEEL.hitstop.kill); // 처치 임팩트
+    flash(this.mesh, 0xffffff);
+    impactEffect(this.pos, 0xffe8b0, 8);
+    if (this.spec.decurion || this.spec.boss) shake(this.spec.boss ? 0.8 : 0.4, 0.4);
     sfx.death();
     gainExp(this.expVal);
     coopLog(`${this.spec.name} 처치 (+${this.expVal} EXP)`);
@@ -599,6 +974,14 @@ class Enemy {
       coopLog(`✚ 축복 성수 +${this.spec.boss ? 3 : 1} (보유 ${game.blessings}) — C 키로 강화`, 'green');
       saveProgress();
       refreshUpgradePanel();
+      // 성구 드롭 (스프린트4): 십부장 = 그 성 티어 랜덤, 보스 = 유니크 확정
+      const ci = castleOf(game.floorIdx);
+      if (this.spec.boss) {
+        grantRelic(BOSS_RELICS[ci]);
+      } else {
+        const pool = Object.keys(RELICS).filter((k) => RELICS[k].tier === ci + 1 && !RELICS[k].unique);
+        if (pool.length) grantRelic(pool[Math.floor(Math.random() * pool.length)]);
+      }
     }
     if (this.spec.decurion && !this.spec.noRelic) {
       game.parchments++;
@@ -609,6 +992,20 @@ class Enemy {
       coopLog(`${relic} 획득 (${game.parchments}/${total})`, 'gold');
     }
     if (this.spec.boss) { startEnding(this); return; }
+    if (game.reserveSpawn && game.enemies.length <= game.reserveSpawn.n) { // 2웨이브 증원
+      const { spec, n } = game.reserveSpawn;
+      game.reserveSpawn = null;
+      coopToast('', '악마의 증원이 나타났다!');
+      coopLog('증원 출현!', 'red');
+      for (let k = 0; k < n; k++) {
+        const x = (Math.random() * 2 - 1) * (ARENA - 4);
+        const z = -ARENA + 4 + Math.random() * (ARENA * 0.9);
+        const e = new Enemy(spec, x, z);
+        e.state = 'aggro';
+        game.enemies.push(e);
+        burstEffect(e.pos, 0x9a4adf, 2.2);
+      }
+    }
     if (game.enemies.length === 0 && !FLOORS[game.floorIdx].boss) floorCleared();
   }
 }
@@ -631,8 +1028,16 @@ function ringEffect(pos, r, color) {
   game.effects.push({ mesh: m, t: 0, dur: 0.45, grow: 1.6 });
 }
 // 매혹 (제2성) / 황금화 (제4성 — gold): 파티원 행동 불능
+// 스프린트6 카운터플레이: 롤 무적으로 회피 가능 + 5초 재매혹 내성
 function applyCharm(u, dur, gold = false) {
-  if (!u.alive || game.shieldT > 0) return;
+  if (!u.alive || game.shieldT > 0 || u.charmResistT > 0) return;
+  if (u.iframes()) {
+    const s = toScreen(u.pos, 2.2);
+    if (s.front) ui.damageNumber(s.x, s.y, '회피!', 'dodge');
+    if (u.isPlayer) sfx.perfect();
+    return;
+  }
+  u.charmResistT = dur + 5;
   u.charmT = Math.max(u.charmT, dur);
   flash(u.mesh, gold ? 0x8a6a10 : 0xaa3366);
   ringEffect(u.pos, 1.8, gold ? 0xffd24a : 0xff77aa);
@@ -657,11 +1062,18 @@ function updateProjectiles(dt) {
     p.mesh.position.addScaledVector(p.vel, dt);
     p.ttl -= dt;
     let hit = p.ttl <= 0;
+    if (!hit && pointInWall(p.mesh.position.x, p.mesh.position.z, 0.2)) { // 벽 = 엄폐
+      burstEffect(p.mesh.position, 0x8890a0, 1.1);
+      hit = true;
+    }
     if (!hit && p.friendly) {
       for (const e of [...game.enemies]) {
         if (p.mesh.position.distanceTo(e.pos) < e.radius + 0.5) {
           burstEffect(p.mesh.position, 0x88ccff, 1.8);
+          impactEffect(p.mesh.position, 0x88ccff);
           sfx.splash();
+          addHitstop(FEEL.hitstop.hit);
+          knock(e, p.mesh.position.clone().sub(p.vel), 3.5);
           e.damage(p.dmg, p.byPlayer);
           for (const o of [...game.enemies]) {
             if (o !== e && p.mesh.position.distanceTo(o.pos) < 2.2) o.damage(p.dmg * 0.5, p.byPlayer);
@@ -672,11 +1084,17 @@ function updateProjectiles(dt) {
     } else if (!hit) {
       for (const u of game.party) {
         if (u.alive && p.mesh.position.distanceTo(u.pos) < 1.0) {
-          u.damage(p.dmg); hit = true; break;
+          u.damage(p.dmg);
+          if (!u.iframes() && game.shieldT <= 0) {
+            addHitstop(FEEL.hitstop.hurt);
+            impactEffect(u.pos, 0xff8866, 4);
+            if (u.isPlayer) shake(0.25, 0.2);
+          }
+          hit = true; break;
         }
       }
     }
-    if (hit) { game.floorGroup.remove(p.mesh); game.projectiles.splice(i, 1); }
+    if (hit) { game.floorGroup.remove(p.mesh); freeSprite(p.mesh); game.projectiles.splice(i, 1); }
   }
 }
 function updateEffects(dt) {
@@ -684,9 +1102,13 @@ function updateEffects(dt) {
     const fx = game.effects[i];
     fx.t += dt;
     const k = fx.t / fx.dur;
-    fx.mesh.scale.multiplyScalar(1 + fx.grow * dt);
+    if (fx.vel) { // 스파크 알갱이 — 중력 낙하
+      fx.mesh.position.addScaledVector(fx.vel, dt);
+      fx.vel.y -= 22 * dt;
+    }
+    fx.mesh.scale.multiplyScalar(Math.max(0.01, 1 + fx.grow * dt));
     if (fx.mesh.material.opacity !== undefined) fx.mesh.material.opacity = 0.85 * (1 - k);
-    if (k >= 1) { game.floorGroup.remove(fx.mesh); game.effects.splice(i, 1); }
+    if (k >= 1) { game.floorGroup.remove(fx.mesh); freeSprite(fx.mesh); game.effects.splice(i, 1); }
   }
 }
 
@@ -800,6 +1222,57 @@ function buildFloorBase(F) {
       game.floorGroup.add(m);
     }
   }
+  // 성별 시각 정체성 (스프린트7) — 외곽 링을 따라 성 테마 데코 (충돌 없음, 결정론 배치)
+  {
+    const ci = castleOf(game.floorIdx);
+    const R = ARENA - 1.2;
+    const n = 10;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + (game.floorIdx % 10) * 0.13; // 층마다 살짝 회전
+      const x = Math.cos(a) * R, z = Math.sin(a) * R;
+      const s = 0.8 + ((i * 37 + game.floorIdx * 13) % 10) / 18; // 결정론 크기 변주
+      let m;
+      if (ci === 0) {        // 벨제붑 — 가시 오벨리스크
+        m = new THREE.Mesh(new THREE.ConeGeometry(0.35 * s, 2.6 * s, 5), mat(0x3a2a20));
+      } else if (ci === 1) { // 아스모데우스 — 장미빛 거울 파편
+        m = new THREE.Mesh(new THREE.BoxGeometry(0.9 * s, 2.4 * s, 0.12),
+          new THREE.MeshStandardMaterial({ color: 0xd8a8c8, metalness: 0.8, roughness: 0.15 }));
+        m.rotation.y = a + 0.6;
+      } else if (ci === 2) { // 레비아탄 — 산호 기둥
+        m = new THREE.Mesh(new THREE.ConeGeometry(0.5 * s, 1.9 * s, 6), mat(0x3a8a96));
+      } else if (ci === 3) { // 마몬 — 금괴 더미
+        m = new THREE.Group();
+        for (let k = 0; k < 3; k++) {
+          const b = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.4, 0.55),
+            new THREE.MeshStandardMaterial({ color: 0xd8b45a, metalness: 0.85, roughness: 0.3 }));
+          b.position.set((k % 2) * 0.35 - 0.17, 0.2 + k * 0.42, 0);
+          b.rotation.y = k * 0.5;
+          m.add(b);
+        }
+      } else {               // 루시퍼 — 부러진 대리석 기둥
+        m = new THREE.Mesh(new THREE.CylinderGeometry(0.42 * s, 0.5 * s, 2.2 * s, 8), mat(0xd8d4cc));
+        m.rotation.z = ((i * 53) % 10 - 5) * 0.02;
+      }
+      m.position.set(x, m.position.y || (ci === 3 ? 0 : 1.1 * s), z);
+      m.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      game.floorGroup.add(m);
+    }
+  }
+
+  // 층 레이아웃 벽 (스프린트3) — 시각과 충돌·시선 데이터가 같은 원본을 공유
+  game.walls = F.layout || layoutFor(game.floorIdx) || [];
+  game.wallMeshes = [];
+  for (const w of game.walls) {
+    const m = new THREE.Mesh(
+      new THREE.BoxGeometry(w.w, 2.4, w.d),
+      new THREE.MeshLambertMaterial({ map: STONE, color: F.wall, transparent: true, opacity: 1 }),
+    );
+    m.position.set(w.x, 1.2, w.z);
+    m.castShadow = true; m.receiveShadow = true;
+    game.floorGroup.add(m);
+    game.wallMeshes.push(m);
+  }
+
   // 프롭: 기둥(모서리) + 깃발 + 횃불
   for (const [x, z] of [[-W + 1, -W + 1], [W - 1, -W + 1], [-W + 1, W - 1], [W - 1, W - 1]]) {
     addProp('pillar', x, z, { height: 4.2 });
@@ -821,6 +1294,11 @@ function patchVisual(F, x, z) {
     new THREE.MeshLambertMaterial({ color: F.patches.color, emissive: F.patches.color, emissiveIntensity: 0.45, transparent: true, opacity: 0.85 }));
   m.rotation.x = -Math.PI / 2; m.position.set(x, 0.04, z);
   game.floorGroup.add(m);
+  // 위험 지대 외곽 링 (스프린트7) — 바닥색과 겹쳐도 경계가 읽히게
+  const edge = new THREE.Mesh(new THREE.RingGeometry(F.patches.r * 0.88, F.patches.r, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, depthWrite: false, side: THREE.DoubleSide }));
+  edge.rotation.x = -Math.PI / 2; edge.position.set(x, 0.06, z);
+  game.floorGroup.add(edge);
   return m;
 }
 function obstacleVisual(F, x, z) {
@@ -950,7 +1428,14 @@ function loadFloor(i) {
       game.enemies.push(new Enemy({ ...spec, ...extra }, x, z));
     }
   };
-  if (F.soldiers) { spawn(F.soldiers, F.soldiers.count); game.quest.soldiers = F.soldiers.count; }
+  if (F.soldiers) {
+    // 스폰 페이싱: 5기 이상이면 절반은 예비 — 남은 적이 예비 수 이하로 줄면 2웨이브
+    const total = F.soldiers.count;
+    const wave1 = total >= 5 ? Math.ceil(total / 2) : total;
+    spawn(F.soldiers, wave1);
+    game.reserveSpawn = total > wave1 ? { spec: F.soldiers, n: total - wave1 } : null;
+    game.quest.soldiers = total;
+  } else game.reserveSpawn = null;
   if (F.illusions) spawn({ ...F.illusions, hp: 1, illusion: true }, F.illusions.count);
   if (F.decurions) {
     F.decurions.forEach((d, k) => {
@@ -997,8 +1482,8 @@ function gainExp(n) {
   while (game.level < MAX_LEVEL && game.exp >= LEVEL_XP[game.level]) {
     game.level++;
     for (const u of game.party) {
-      u.baseMax += 12; u.dmg += 2; u.melee += 3;
-      u.maxhp = Math.round(u.baseMax * upM('life'));
+      u.baseMax += 6; u.dmg += 2; u.melee += 3; // HP/렙 반감 — 후반 난이도 역전 방지 (스프린트6)
+      u.maxhp = Math.round(u.baseMax * upM('life') * relicM('hp'));
       u.heal(u.maxhp * 0.4);
     }
     coopFlash(); sfx.levelup();
@@ -1050,7 +1535,12 @@ function useSkill(u, i) {
         if (!u.alive) return;
         ringEffect(u.pos, 3.4, 0xffd970);
         for (const e of [...game.enemies]) {
-          if (u.pos.distanceTo(e.pos) < 3.6) e.damage(u.melee * upM('cross'), byPlayer);
+          if (u.pos.distanceTo(e.pos) < 3.6) {
+            e.damage(u.melee * upM('cross'), byPlayer);
+            knock(e, u.pos, 4.5);
+            addHitstop(FEEL.hitstop.hit);
+            impactEffect(e.pos, 0xffe07a, 4);
+          }
         }
       });
       break;
@@ -1096,7 +1586,10 @@ function useSkill(u, i) {
           ringEffect(u.pos, 8, 0xff8844);
           burstEffect(u.pos, 0xffaa44, 5);
           for (const e of [...game.enemies]) {
-            if (u.pos.distanceTo(e.pos) < 8.5) e.damage((60 + game.level * 4) * upM('cross'), byPlayer);
+            if (u.pos.distanceTo(e.pos) < 8.5) {
+              e.damage((60 + game.level * 4) * upM('cross'), byPlayer);
+              knock(e, u.pos, 7);
+            }
           }
         });
       } else if (u.key === 'raphaela') {
@@ -1128,14 +1621,25 @@ function getLocalInput(pnum) {
       ix: (k.ArrowRight ? 1 : 0) - (k.ArrowLeft ? 1 : 0),
       iz: (k.ArrowDown ? 1 : 0) - (k.ArrowUp ? 1 : 0),
       skills: [!!k.Comma, !!k.Period, !!k.Slash, !!k.ShiftRight],
+      dodge: !!k.ControlRight,
     };
   }
   const arrows = !game.player2; // 2P가 없으면 방향키도 1P 몫
-  return {
-    ix: (k.KeyD || (arrows && k.ArrowRight) ? 1 : 0) - (k.KeyA || (arrows && k.ArrowLeft) ? 1 : 0),
-    iz: (k.KeyS || (arrows && k.ArrowDown) ? 1 : 0) - (k.KeyW || (arrows && k.ArrowUp) ? 1 : 0),
-    skills: [!!(k.Space || k.KeyJ || k.Digit1), !!(k.KeyK || k.Digit2), !!k.Digit3, !!(k.KeyL || k.Digit4)],
+  const t = game.touchInput; // 가상 조이스틱/버튼 병합 (펄스는 여기서 소모)
+  const input = {
+    ix: Math.max(-1, Math.min(1, (k.KeyD || (arrows && k.ArrowRight) ? 1 : 0) - (k.KeyA || (arrows && k.ArrowLeft) ? 1 : 0) + t.ix)),
+    iz: Math.max(-1, Math.min(1, (k.KeyS || (arrows && k.ArrowDown) ? 1 : 0) - (k.KeyW || (arrows && k.ArrowUp) ? 1 : 0) + t.iz)),
+    skills: [
+      !!(k.Space || k.KeyJ || k.Digit1) || t.skillPulse[0],
+      !!(k.KeyK || k.Digit2) || t.skillPulse[1],
+      !!k.Digit3 || t.skillPulse[2],
+      !!(k.KeyL || k.Digit4) || t.skillPulse[3],
+    ],
+    dodge: !!k.ShiftLeft || t.dodgePulse,
   };
+  t.skillPulse = [false, false, false, false];
+  t.dodgePulse = false;
+  return input;
 }
 
 function updatePlayer(u, dt, input) {
@@ -1161,19 +1665,51 @@ function updatePlayer(u, dt, input) {
       if (!u.dashHit.has(e) && u.pos.distanceTo(e.pos) < e.radius + 1.2) {
         u.dashHit.add(e);
         e.damage(u.melee * 1.2 * upM('cross'), u.isPlayer);
+        knock(e, u.pos, 5);
+        addHitstop(FEEL.hitstop.hit);
+        impactEffect(e.pos, 0xd0e8ff);
         burstEffect(e.pos, 0xd0e8ff, 1.6);
       }
     }
     return;
+  }
+  // 회피 롤 — 이동/스킬보다 우선, 진행 중엔 다른 행동 불가 (recovery 포함)
+  if (u.dodgeT > 0) {
+    u.dodgeT -= dt;
+    u.pos.addScaledVector(u.dodgeDir, (FEEL.dodge.dist / FEEL.dodge.total) * dt);
+    clampArena(u.pos);
+    collideWalls(u.pos, 0.5);
+    const obj = u.mesh.children[0];
+    const prog = 1 - u.dodgeT / FEEL.dodge.total;
+    obj.rotation.x = -Math.PI * 2 * Math.min(1, prog); // 앞구르기 한 바퀴
+    u.dodgeGhostT = (u.dodgeGhostT || 0) - dt;
+    if (u.dodgeGhostT <= 0) { // 잔상
+      u.dodgeGhostT = 0.07;
+      const g = glowSprite(0xcfe4ff, 1.4);
+      g.position.copy(u.pos); g.position.y = 1.0;
+      game.floorGroup.add(g);
+      game.effects.push({ mesh: g, t: 0, dur: 0.25, grow: -1.2 });
+    }
+    if (u.dodgeT <= 0) obj.rotation.x = 0;
+    return;
+  }
+  if (input.dodge && u.dodgeCd <= 0 && u.charmT <= 0) {
+    u.dodgeT = FEEL.dodge.total;
+    u.dodgeCd = FEEL.dodge.cd * relicM('dcd'); // 묵주 성구 — 회피 쿨다운 감소
+    u.dodgeDir.copy(dir.lengthSq() > 0 ? dir : u.faceDir).normalize();
+    u.face(u.dodgeDir);
+    u.vel.set(0, 0, 0);
+    sfx.dodge();
   }
   const slippery = !!F.slippery;
   const accel = slippery ? 16 : 90;
   const friction = slippery ? 1.2 : 11;
   u.vel.addScaledVector(dir, accel * dt);
   u.vel.multiplyScalar(Math.max(0, 1 - friction * dt));
-  const maxSpd = u.speed * u.slowT * upM('step');
+  const maxSpd = u.speed * u.slowT * upM('step') * relicM('spd');
   if (u.vel.length() > maxSpd) u.vel.setLength(maxSpd);
   u.pos.addScaledVector(u.vel, dt);
+  collideWalls(u.pos, 0.5);
   const moving = u.vel.length() > 0.6;
   if (moving) u.face(u.vel);
   u.anim.base(moving);
@@ -1220,7 +1756,8 @@ function updateCompanion(u, dt) {
     const dir = moveTo.clone().sub(u.pos); dir.y = 0;
     if (dir.lengthSq() > 0.2) {
       dir.normalize();
-      u.pos.addScaledVector(dir, u.speed * 0.92 * u.slowT * upM('step') * dt);
+      u.pos.addScaledVector(dir, u.speed * 0.92 * u.slowT * upM('step') * relicM('spd') * dt);
+      collideWalls(u.pos, 0.5);
       u.face(dir);
       moving = true;
     }
@@ -1478,6 +2015,7 @@ function updateHUD() {
     plates.push({ id: u.plateId, x: s.x, y: s.y, visible: s.front, name: `${u.p2 ? '★2 ' : ''}${u.def.name}`, frac: u.hp / u.maxhp, cls: u.isPlayer || u.p2 ? 'ally player' : 'ally' });
   }
   for (const e of game.enemies) {
+    if (e.revealed === false) continue; // 미공개 적은 HUD에 새지 않는다
     const s = toScreen(e.pos, 2.1 * e.scale);
     const elite = e.spec.decurion || e.spec.boss;
     plates.push({
@@ -1495,11 +2033,12 @@ function updateHUD() {
   } else ui.setTarget(null);
 
   // 보스 / 미니맵 / 임무
-  ui.bossFrame(game.boss && game.boss.hp > 0 ? { name: `${game.boss.spec.name} — ${game.boss.spec.title}`, frac: game.boss.hp / game.boss.maxhp } : null);
+  ui.bossFrame(game.boss && game.boss.hp > 0 && game.boss.state === 'aggro' // 어그로 전엔 숨김 (스포일러 방지)
+    ? { name: `${game.boss.spec.name} — ${game.boss.spec.title}`, frac: game.boss.hp / game.boss.maxhp } : null);
   ui.updateMinimap({
     arena: ARENA,
     party: game.party.filter((u) => u.alive).map((u) => ({ x: u.pos.x, z: u.pos.z, player: u.isPlayer })),
-    enemies: game.enemies.map((e) => ({ x: e.pos.x, z: e.pos.z, elite: e.spec.decurion || e.spec.boss })),
+    enemies: game.enemies.filter((e) => e.revealed !== false).map((e) => ({ x: e.pos.x, z: e.pos.z, elite: e.spec.decurion || e.spec.boss })),
     portal: game.portal ? game.portal.position : null,
     turrets: game.turrets,
   });
@@ -1523,6 +2062,7 @@ function startGame(charKey) {
   game.player = game.party[0];
   game.player2 = null;
   game.netP2 = false;
+  game.usedAdRevive = false; // 광고 부활 판당 1회 리셋
   if (!game.spirit) game.spirit = buildSpirit();
   ui.buildParty(game.party);
   ui.buildHotbar(game.player.def.skills);
@@ -1535,7 +2075,12 @@ function startGame(charKey) {
   if (game.coopHost && (net.state.peer || game.coopPendingP2)) assignNetP2();
   if (game.cycle > 1) coopLog(`${game.cycle}회차 — 악마들이 더 강해져 있습니다`, 'red');
   coopLog(`${game.player.def.name}(으)로 순례를 시작합니다`, 'gold');
+  if (!localStorage.getItem('rosario_tut')) $('tut-card').style.display = 'flex'; // 첫 플레이 안내
 }
+$('tut-ok').addEventListener('click', () => {
+  $('tut-card').style.display = 'none';
+  try { localStorage.setItem('rosario_tut', '1'); } catch (e) { /* */ }
+});
 
 function showEnd(title, sub, buttons) {
   $('end-title').textContent = title;
@@ -1552,17 +2097,40 @@ function showEnd(title, sub, buttons) {
 }
 function gameOver() {
   game.state = 'over';
+  // ---- 광고 연동 (Tart Shop AFG) ----
+  const restart = () => {
+    $('end-screen').style.display = 'none';
+    for (const u of game.party) u.revive(0.7);
+    game.state = 'play';
+    loadFloor(game.floorIdx);
+  };
+  const buttons = [{
+    label: '기도하고 다시 일어나기',
+    fn: () => {
+      if (window.AFG) window.AFG.interstitial({ name: 'rosario_gameover', onAfterAd: restart });
+      else restart();
+    },
+  }];
+  if (window.AFG && !game.usedAdRevive && !guest.active) { // 리워드 부활 — 판당 1회, 코옵 게스트 제외
+    buttons.push({
+      label: '📺 광고 보고 부활',
+      fn: () => {
+        game.usedAdRevive = true;
+        window.AFG.rewarded({
+          name: 'rosario_continue',
+          onReward: () => {
+            $('end-screen').style.display = 'none';
+            for (const u of game.party) u.revive(0.5);
+            game.state = 'play';
+          },
+          onDismiss: () => { game.usedAdRevive = false; },
+        });
+      },
+    });
+  }
   showEnd('파티가 쓰러졌다…',
     `${CASTLES[castleOf(game.floorIdx)].name} ${FLOORS[game.floorIdx].n}층 — ${FLOORS[game.floorIdx].name}에서. 그러나 기도는 끝나지 않았다.`,
-    [{
-      label: '기도하고 다시 일어나기',
-      fn: () => {
-        $('end-screen').style.display = 'none';
-        for (const u of game.party) u.revive(0.7);
-        game.state = 'play';
-        loadFloor(game.floorIdx);
-      },
-    }]);
+    buttons);
 }
 
 // 회차 플레이 — 레벨·강화 유지, 악마는 회차 배율로 강화
@@ -1734,16 +2302,55 @@ window.addEventListener('keyup', (e) => { game.keys[e.code] = false; });
 window.addEventListener('wheel', (e) => {
   game.camDist = Math.max(9, Math.min(26, game.camDist + Math.sign(e.deltaY) * 1.4));
 });
+// ---- 모바일 터치 조작 (스프린트5) — 포인터 이벤트라 데스크톱에서도 검증 가능 ----
+if (IS_TOUCH) document.body.classList.add('touch');
+window.addEventListener('touchstart', function once() {
+  document.body.classList.add('touch'); // 하이브리드 기기 대응
+  initAudio(); // 모바일 오디오 언락
+  window.removeEventListener('touchstart', once);
+}, { passive: true });
+
+{
+  const joy = $('joy'), knob = $('joy-knob');
+  const JOY_R = 46;
+  let joyId = null;
+  const joyVec = (e) => {
+    const r = joy.getBoundingClientRect();
+    let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+    const len = Math.hypot(dx, dy);
+    if (len > JOY_R) { dx *= JOY_R / len; dy *= JOY_R / len; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+    game.touchInput.ix = dx / JOY_R;
+    game.touchInput.iz = dy / JOY_R;
+  };
+  joy.addEventListener('pointerdown', (e) => { joyId = e.pointerId; joy.setPointerCapture(joyId); joyVec(e); });
+  joy.addEventListener('pointermove', (e) => { if (e.pointerId === joyId) joyVec(e); });
+  const joyEnd = (e) => {
+    if (e.pointerId !== joyId) return;
+    joyId = null;
+    game.touchInput.ix = game.touchInput.iz = 0;
+    knob.style.transform = '';
+  };
+  joy.addEventListener('pointerup', joyEnd);
+  joy.addEventListener('pointercancel', joyEnd);
+
+  $('btn-dodge').addEventListener('pointerdown', (e) => { e.preventDefault(); game.touchInput.dodgePulse = true; });
+  $('hotbar').addEventListener('pointerdown', (e) => { // 핫바 탭 = 스킬 (데스크톱 클릭도 동작)
+    const slot = e.target.closest('.slot');
+    if (slot) game.touchInput.skillPulse[+slot.id.split('-')[1]] = true;
+  });
+}
+
 let dragging = false, dragX = 0;
 window.addEventListener('contextmenu', (e) => e.preventDefault());
 window.addEventListener('pointerdown', (e) => {
   if (e.button === 2) { dragging = true; dragX = e.clientX; }
-  else if (e.button === 0 && game.state === 'play') {
-    // 클릭 타겟팅
+  else if (e.button === 0 && game.state === 'play' && e.target === renderer.domElement) {
+    // 클릭 타겟팅 (캔버스 한정 — 조이스틱/버튼 탭 제외)
     const ndc = new THREE.Vector2((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
     const ray = new THREE.Raycaster();
     ray.setFromCamera(ndc, camera);
-    const hits = ray.intersectObjects(game.enemies.map((en) => en.mesh), true);
+    const hits = ray.intersectObjects(game.enemies.filter((en) => en.revealed !== false).map((en) => en.mesh), true);
     if (hits.length) {
       let o = hits[0].object;
       while (o && !o.userData.owner) o = o.parent;
@@ -1764,7 +2371,12 @@ function updateGame(dt) {
   if (game.shieldT > 0) game.shieldT -= dt;
   if (game.guardT > 0) game.guardT -= dt;
   if (game.tauntT > 0) game.tauntT -= dt;
-  for (const u of game.party) for (let i = 0; i < 4; i++) u.cool[i] = Math.max(0, u.cool[i] - dt);
+  for (const u of game.party) {
+    for (let i = 0; i < 4; i++) u.cool[i] = Math.max(0, u.cool[i] - dt);
+    u.dodgeCd = Math.max(0, u.dodgeCd - dt);
+    u.dodgeFxT = Math.max(0, u.dodgeFxT - dt);
+    u.charmResistT = Math.max(0, u.charmResistT - dt);
+  }
 
   for (let i = game.pending.length - 1; i >= 0; i--) {
     const p = game.pending[i];
@@ -1776,9 +2388,21 @@ function updateGame(dt) {
   if (game.player2 && game.player2.alive) updatePlayer(game.player2, dt, game.netP2 ? net.state.remoteInput : getLocalInput(2));
   for (const u of game.party) if (!u.isPlayer && u !== game.player2 && u.alive) updateCompanion(u, dt);
   for (const e of [...game.enemies]) e.update(dt);
+
+  // 어둠 층: 인지 기반 공개 — 렌더/네임플레이트/미니맵/타겟팅이 전부 이 값을 쓴다
+  const dark = !!FLOORS[game.floorIdx].dark;
+  const seers = [game.player, game.player2].filter((u) => u && u.alive);
+  for (const e of game.enemies) {
+    e.revealed = !dark || seers.some((u) =>
+      e.pos.distanceTo(u.pos) <= 14 && !sightBlocked(u.pos.x, u.pos.z, e.pos.x, e.pos.z));
+    e.mesh.visible = e.revealed;
+  }
+  if (game.target && game.target.revealed === false) game.target = null; // 가려지면 락 해제
+
   updateProjectiles(dt);
   updateGimmicks(dt);
   updateEffects(dt);
+  updateTelegraphs(dt);
   updateSpirit(dt);
 
   for (const u of game.party) u.anim.update(dt);
@@ -1809,7 +2433,27 @@ function updateGame(dt) {
   const cx = fx + Math.sin(game.camYaw) * d * 0.72;
   const cz = fz + Math.cos(game.camYaw) * d * 0.72;
   camera.position.lerp(new THREE.Vector3(cx, d * 0.85, cz), 5 * dt);
+  if (game.shakeT > 0) { // 카메라 셰이크 — 감쇠하며 흔들림
+    game.shakeT -= dt;
+    const a = game.shakeAmp * Math.max(0, game.shakeT) * 2.5;
+    camera.position.x += (Math.random() - 0.5) * a;
+    camera.position.y += (Math.random() - 0.5) * a * 0.6;
+    camera.position.z += (Math.random() - 0.5) * a;
+    if (game.shakeT <= 0) game.shakeAmp = 0;
+  }
   camera.lookAt(fx, 1.2, fz);
+
+  // 벽이 카메라-플레이어 사이를 가리면 반투명 (낮은 앵글에서만 발생)
+  for (let i = 0; i < game.walls.length; i++) {
+    const w = game.walls[i], m = game.wallMeshes[i];
+    if (!m) continue;
+    let fade = false;
+    const t = segRectT(camera.position.x, camera.position.z, fx - camera.position.x, fz - camera.position.z, w);
+    if (t !== null && camera.position.y + (1.2 - camera.position.y) * t < 2.5) fade = true;
+    m.material.opacity += ((fade ? 0.35 : 1) - m.material.opacity) * Math.min(1, dt * 8);
+  }
+
+  fog.update(camera, game.player.pos.x, game.player.pos.z, castWallRay, dt);
 
   updateHUD();
 
@@ -2252,19 +2896,33 @@ function frame(t) {
   last = t;
   // 예외가 콜백 밖으로 나가면 three.js가 다음 프레임 예약을 멈춰 게임이 영구 정지한다
   try {
+    // fog 상태 게이트 — 이른 렌더 분기보다 먼저 (메뉴/선택 화면 누출 방지)
+    fog.setEnabled(game.state === 'play' && !!(FLOORS[game.floorIdx] && FLOORS[game.floorIdx].dark));
     updateDayNight(dt);
-    if (game.state === 'play') updateGame(dt);
+    // 히트스톱 — 시뮬레이션만 12%로 감속 (실시간으로 회복)
+    let simDt = dt;
+    if (game.hitstopT > 0) { game.hitstopT -= dt; simDt = dt * FEEL.hitstop.scale; }
+    if (game.state === 'play') updateGame(simDt);
     else if (game.state === 'ending') updateEnding(dt);
     else if (game.state === 'guestmode') guestFrame(dt);
     else if (game.spirit) { updateSpirit(dt); for (const u of game.party) u.anim.update(dt); }
     renderer.render(scene, camera);
+    frameErrors = 0; // 정상 프레임이면 일시 오류 용서
   } catch (err) {
     console.error('frame error:', err);
+    if (++frameErrors > 60) { // 매 프레임 실패 = 복구 불능 — 조용한 무한 루프 대신 멈추고 알린다
+      renderer.setAnimationLoop(null);
+      document.body.insertAdjacentHTML('beforeend',
+        `<div style="position:fixed;inset:0;z-index:99;display:flex;align-items:center;justify-content:center;background:rgba(6,4,12,.9);color:#e8dcb8;font-size:14px;text-align:center;line-height:2">
+          오류로 게임이 멈췄습니다.<br><a href="" style="color:#d8b45a">새로고침</a></div>`);
+    }
   }
 }
+let frameErrors = 0;
 renderer.setAnimationLoop(frame);
 // 백그라운드 틱 — 탭이 가려져도 월드는 멈추지 않는다 (MMO식)
-setInterval(() => { if (document.hidden) frame(performance.now()); }, 50);
+// 백그라운드 틱은 온라인 코옵 중에만 (솔로는 숨은 탭에서 일시정지 — 배터리 + 몰살 방지)
+const bgTick = setInterval(() => { if (document.hidden && !game.testDrive && net.state.connected) frame(performance.now()); }, 50);
 camera.position.set(0, 18, 26);
 camera.lookAt(0, 0, 0);
 
@@ -2359,4 +3017,11 @@ $('lobby-start').addEventListener('click', () => {
 try { $('acct-name').value = localStorage.getItem('rosario_acct') || ''; } catch (e) { /* */ }
 loadProgress();
 
-window.__rc = { game, loadFloor, startGame, gainExp, frame, startNewCycle, buyUpgrade, guest, net, assignNetP2, lobby, renderLobby };
+window.__rc = { game, loadFloor, startGame, gainExp, frame, startNewCycle, buyUpgrade, guest, net, assignNetP2, lobby, renderLobby,
+  FEEL, Enemy, sightBlocked, castWallRay, pointInWall, fog, // 전투 테스트용
+  grantRelic, equipRelic, relicM, applyRelicStats, migrateSave, // 성구 테스트용
+  impactEffect, spritePoolSize: () => spritePool.length, // 풀링 테스트용
+  applyCharm, // 밸런스 테스트용
+  stopAutoFrame() { game.testDrive = true; renderer.setAnimationLoop(null); }, // 합성 프레임 전용 모드
+};
+if (location.search.includes('combat-test')) import('./combat-test.js');
